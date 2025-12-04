@@ -1,0 +1,520 @@
+##################
+
+## Example 9.2.1: Mountain Car Task
+
+## Find optimal policy using one-step actor-critic with state-value function as the baseline. 
+## state-action preference
+## RBF features
+
+project_name = 'example-9-2-1'
+
+##################
+
+# Change the current working directory to the specified path.
+
+import os
+
+mywd = "D:\Fundamental-Reinforcement-Learning"
+
+os.chdir(mywd)
+os.getcwd()
+
+import os
+
+#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Use CPU.
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Use GPU.
+
+##################
+
+# Set random seed for reproducibility.
+
+seed = 543
+from numpy import random
+random.seed(seed)
+from tensorflow.random import set_seed
+set_seed(seed)
+
+# Import packages and functions.
+
+import numpy as np
+from copy import deepcopy
+import matplotlib.pyplot as plt
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+# parameter settings
+
+alpha_w = 0.01
+
+alpha_theta = 0.5
+
+eps = 1.0e-5
+
+discount = 1.0
+
+# state = [position, velocity]
+
+# Three possible actions: 
+# full throttle reverse (-1), and zero throttle (0), full throttle forward (+1).
+
+action_word = np.array(["reverse", "zero", "forward"])
+
+action = np.array([-1, 0, 1])
+action_num = 3
+
+# building environment
+
+x_min = -1.2; x_max = 0.5
+v_min = -0.07; v_max = 0.07
+
+def is_terminal(state): 
+	x = state[0]
+	status = False
+	if x >= x_max:
+		status = True
+	return status
+
+def step(state, action):
+	x, v = state
+	if is_terminal(state):
+		x_new = x_max
+		v_new = 0
+		reward = 0
+	else:
+		reward = -1.0
+		v_new = -0.0025 * np.cos(3 * x) + v + 0.001 * action 
+		v_new = np.clip(v_new, v_min, v_max)
+		x_new = x + v_new
+		x_new = np.clip(x_new, x_min, x_max)
+		if x_new == x_min:
+			v_new = 0.0
+		if x_new == x_max:
+			v_new = 0.0
+			reward = 0.0
+	next_state = [x_new, v_new]
+	return {"next_state": next_state, "reward": reward}
+
+# Set the RBF grid.
+
+#num_x_pts = 9
+#num_v_pts = 7
+
+num_x_pts = 15
+num_v_pts = 11
+
+x_width = (x_max - x_min) / (num_x_pts - 1)
+v_width = (v_max - v_min) / (num_v_pts - 1)
+
+x_pts = np.zeros(num_x_pts, dtype = float)
+v_pts = np.zeros(num_v_pts, dtype = float)
+
+for i in range(num_x_pts):
+	x_pts[i] = x_min + i * x_width
+
+for j in range(num_v_pts):
+	v_pts[j] = v_min + j * v_width
+
+num_features_w = int(len(x_pts) * len(v_pts))
+num_features_theta = int(3 * len(x_pts) * len(v_pts))  
+
+num_features_w
+num_features_theta
+
+w = np.zeros(num_features_w, dtype = float)  # weight vector
+
+#theta = np.zeros(num_features_theta, dtype = float)  # weight vector for policy function
+
+theta_left = -2.0; theta_right = 2.0
+theta = np.random.uniform(low = theta_left, high = theta_right, size = num_features_theta)
+
+def feature_active_index(state, move, x_pts, v_pts):
+	m = len(x_pts) * len(v_pts)
+	all_index = list(np.arange(3 * m)) 
+	if move == -1:
+		index = all_index[:m]
+	elif move == 0:
+		index = all_index[m:(m+m)]
+	else:
+		index = all_index[(m+m):]
+	return index
+
+#x_sd = 0.1  # not a bad choice
+#v_sd = 0.1  # not a bad choice
+
+x_sd = 0.1   # good choice
+v_sd = 0.05  # good choice
+
+sd = [x_sd, v_sd]
+
+def feature_calculation(state, x_pts, v_pts, sd):
+	x, v = state
+	feature_values = np.zeros(shape = (len(x_pts), len(v_pts)), dtype = float)
+	if is_terminal(state) is False:
+		x_sd, v_sd = sd
+		for i in range(len(x_pts)):
+			c1 = x_pts[i]
+			for j in range(len(v_pts)):
+				c2 = v_pts[j]
+				t1 = ((x - c1) / x_sd)**2 + ((v - c2) / v_sd)**2
+				t2 = np.exp(-0.5 * t1)
+				feature_values[i, j] = t2
+	feature_values = feature_values.flatten()
+	return feature_values
+
+def feature_calculation_theta(state, move, theta, x_pts, v_pts, sd):
+	x, v = state
+	feature_values = feature_calculation(state, x_pts, v_pts, sd)
+	# Find active feature indices.
+	index = feature_active_index(state, move, x_pts, v_pts)
+	# Find the feature vector.
+	feature = np.zeros(len(theta))
+	feature[index] = feature_values
+	return feature
+
+sigmoid = lambda x: 1.0 / (1.0 + np.exp(-np.clip(x, -5, 5)))
+
+def action_prob(state, theta, x_pts, v_pts, sd):
+	action = [-1, 0, 1]
+	m = len(action)
+	preference = np.zeros(m, dtype = float)
+	for i in range(m):
+		move = action[i]
+		feature = feature_calculation_theta(state, move, theta, x_pts, v_pts, sd)
+		preference[i] = np.sum(theta * feature)
+	#print("preference = ", preference)
+	preference_sig = sigmoid(preference)
+	#print("preference_sig = ", preference_sig)
+	preference_sig_sum = np.sum(preference_sig)
+	prob = preference_sig / preference_sig_sum
+	#print("prob = ", prob)
+	return prob
+
+def grad_action_prob(state, theta, x_pts, v_pts, sd): 
+	action = [-1, 0, 1]
+	m = len(action)
+	preference = np.zeros(m, dtype = float)
+	all_features = np.zeros(shape = (m, len(theta)), dtype = float)
+	for i in range(m):
+		move = action[i]
+		feature = feature_calculation_theta(state, move, theta, x_pts, v_pts, sd)
+		preference[i] = np.sum(theta * feature)
+		all_features[i,:] = feature
+	sig_preference = sigmoid(preference)
+	sig_preference_sum = np.sum(sig_preference)
+	prob = sig_preference / sig_preference_sum
+	t1 = np.zeros(shape = (m, len(theta)), dtype = float)
+	for i in range(m):
+		t1[i] = (1.0 - sig_preference[i]) * all_features[i]
+	t2 = np.zeros(len(theta), dtype = float)
+	for i in range(m):
+		t2 = t2 + prob[i] * t1[i]	
+	all_grad = np.zeros(shape = (m, len(theta)), dtype = float)
+	for i in range(m):
+		#print("i = ", i)
+		#print("prob[i] = ", prob[i])
+		all_grad[i, :] = prob[i] * (t1[i] - t2) 
+	#print("all_grad = ", all_grad)
+	#print("max all_grad = ", np.max(np.abs(all_grad)))
+	return all_grad
+
+soft_temp = 0.4
+
+def assign_prob(original_prob, soft_temp):
+	tmp_prob = np.power(original_prob, 1 / soft_temp)
+	new_prob = tmp_prob / np.sum(tmp_prob)
+	return new_prob
+
+# main loop
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+#episode_num = 1000  # This number is good enough!
+
+episode_num = 1000  # for testing purpose only
+
+num_steps = np.zeros(episode_num, dtype = int)
+
+max_steps = 10000
+
+for episode in range(episode_num):
+	print("")
+	print("episode = ", episode+1)
+	# some initialization
+	state_trajectory = []
+	x = np.random.uniform(low = -0.6, high = -0.4, size = 1)  # initial position
+	v = 0.0  # initial velocity
+	state = [float(x), v]  # initial state
+	print("initial_state = ", state)
+	state_trajectory.append(state)
+	status = is_terminal(state)
+	while status == False:
+		eta = 1.0
+		# Choose an action according to the policy.
+		prob = action_prob(state, theta, x_pts, v_pts, sd)
+		new_prob = assign_prob(prob, soft_temp)
+		#prob = assign_prob(prob, soft_temp)
+		#move = int(np.random.choice(action, size = 1, p = prob))
+		move = int(np.random.choice(action, size = 1, p = new_prob))
+		step.obj = step(state, move)
+		next_state = step.obj['next_state']
+		reward = step.obj['reward']
+		if is_terminal(next_state):
+			print("final_state = ", next_state)
+			# Update the weights of the state-value function.
+			current_feature_w = feature_calculation(state, x_pts, v_pts, sd)
+			current_v_hat = np.sum(w * current_feature_w)
+			delta = reward - current_v_hat
+			w = w + alpha_w * delta * current_feature_w
+			# Update the weights of the policy function.
+			all_grad = grad_action_prob(state, theta, x_pts, v_pts, sd)
+			move_index = move + 1
+			grad = all_grad[move_index]
+			move_prob = prob[move_index]
+			theta = theta + alpha_theta * eta * delta * grad / move_prob
+			eta = discount * eta
+			status = True
+		else: 
+			# Update the weights of the state-value function.
+			current_feature_w = feature_calculation(state, x_pts, v_pts, sd)
+			current_v_hat = np.sum(w * current_feature_w)
+			next_feature_w = feature_calculation(next_state, x_pts, v_pts, sd)
+			next_v_hat = np.sum(w * next_feature_w)
+			delta = reward + discount * next_v_hat - current_v_hat
+			w_old = np.copy(w)
+			w = w + alpha_w * delta * current_feature_w
+			#print("max_abs(w - w_old) = ", np.max(np.abs(w - w_old)))
+			# Update the weights of the policy function.
+			all_grad = grad_action_prob(state, theta, x_pts, v_pts, sd)
+			move_index = move + 1
+			grad = all_grad[move_index]
+			#print("max abs(grad) = ", np.max(np.abs(grad)))
+			move_prob = prob[move_index]
+			theta_old = np.copy(theta)
+			theta = theta + alpha_theta * eta * delta * grad / move_prob
+			#print("max_abs(theta - theta_old) = ", np.max(np.abs(theta - theta_old)))
+			eta = discount * eta
+			state = next_state
+			state_trajectory.append(state)
+			status = is_terminal(state)
+			if len(state_trajectory) == max_steps:
+				status = True
+	num_steps[episode] = len(state_trajectory) - 1
+	print("number of steps = ", num_steps[episode])
+
+# Print the results.
+
+print(w)
+print(theta)
+
+results = {'w': w, 'theta': theta, 'num_steps': num_steps}
+
+'''
+# Save the results to NPZ file.
+
+path_save_results = mywd + "\\Py-Objects\\" + project_name + "_results"
+
+np.savez(path_save_results, **results)
+
+'''
+'''
+# Load the results of NPZ file.
+
+path_load_results = mywd + "\\Py-Objects\\" + project_name + "_results" + ".npz"
+
+results = np.load(path_load_results, allow_pickle = True)
+
+results.files
+
+results['w'] 
+results['theta'] 
+results['num_steps']
+
+w = results['w'] 
+theta = results['theta'] 
+num_steps = results['num_steps']
+
+'''
+
+# number of steps in the episode
+
+plt.plot(range(episode_num), num_steps, 'k-')
+plt.title('One-step actor-critic with RBF')
+plt.xlabel('episode')
+plt.ylabel('number of steps in the episode')
+plt.show()
+
+np.min(num_steps)
+np.max(num_steps)
+np.mean(num_steps)
+np.median(num_steps)
+
+plt.subplots_adjust(hspace = 0.7, wspace = 0.5)
+plt.subplot(121)
+plt.boxplot(num_steps)
+#plt.ylim(0, 2000)
+plt.xticks([])
+plt.title('One-step actor-critic')
+plt.ylabel('number of steps')
+plt.subplot(122)
+plt.boxplot(num_steps)
+plt.ylim(0, 600)
+plt.xticks([])
+plt.title('One-step actor-critic')
+plt.ylabel('number of steps')
+plt.show()
+
+# Preparation for plotting
+
+x_num = 101
+v_num = 101 
+
+x = np.linspace(start = x_min, stop = x_max, num = x_num)
+v = np.linspace(start = v_min, stop = v_max, num = v_num)
+
+X, V = np.meshgrid(x, v)
+X.shape; V.shape
+len(np.unique(X)); len(np.unique(V))
+
+state_value = np.zeros(shape = (x_num, v_num))
+
+greedy_action = np.zeros(shape = (x_num, v_num))
+
+for i in range(x_num):
+	for j in range(v_num):
+		state = np.array([X[i, j], V[i, j]])
+		prob = action_prob(state, theta, x_pts, v_pts, sd)
+		index = np.argmax(prob)
+		#print("type(index) = ", type(index))
+		move = action[index]
+		greedy_action[i, j] = move
+		feature_w = feature_calculation(state, x_pts, v_pts, sd)
+		v_hat = np.sum(w * feature_w)
+		state_value[i, j] = v_hat
+
+'''
+# cost-to-go function is the negative of the state value function.
+
+cost_to_go = (-1.0) * state_value
+
+# Figure xxx: plot of cost-to-go function: perspective plot or surface plot using wireframe() or surface()
+
+from mpl_toolkits.mplot3d import Axes3D
+
+fig = plt.figure('Figure 10.1(a)')
+ax = plt.axes(projection = '3d')
+ax.plot_wireframe(X, V, cost_to_go, color = 'brown', rstride = 1, cstride = 1)  # using wireframe()
+#ax.plot_surface(X, V, cost_to_go, rstride = 1, cstride = 1, cmap = 'viridis', edgecolor = 'none')  # using surface()
+ax.set_title("One-step actor-critic with RBF", fontsize = 10)
+ax.set_xlabel('position', fontsize = 8)
+ax.set_ylabel('velocity', fontsize = 8)
+ax.set_zlabel('cost-to-go value', fontsize = 8)
+plt.xticks([-1.2, 0.0, 0.5])
+plt.yticks([-0.07, 0.0, 0.07])
+#plt.xticks(np.arange(start = x_min, stop = x_max, step = 0.2))
+#plt.yticks(np.arange(start = v_min, stop = v_max, step = 0.02))
+plt.show()
+
+'''
+
+'''
+# Figure xxx: plot of state value: perspective plot or surface plot using wireframe() or surface()
+
+from mpl_toolkits.mplot3d import Axes3D
+
+fig = plt.figure('Figure 10.1(a)')
+ax = plt.axes(projection = '3d')
+ax.plot_wireframe(X, V, state_value, color = 'brown', rstride = 1, cstride = 1)  # using wireframe()
+#ax.plot_surface(X, V, state_value, rstride = 1, cstride = 1, cmap = 'viridis', edgecolor = 'none')  # using surface()
+ax.set_title("One-step actor-critic with RBF", fontsize = 10)
+ax.set_xlabel('position', fontsize = 8)
+ax.set_ylabel('velocity', fontsize = 8)
+ax.set_zlabel('state value', fontsize = 8)
+plt.xticks([-1.2, 0.0, 0.5])
+plt.yticks([-0.07, 0.0, 0.07])
+#plt.xticks(np.arange(start = x_min, stop = x_max, step = 0.2))
+#plt.yticks(np.arange(start = v_min, stop = v_max, step = 0.02))
+plt.show()
+
+'''
+
+# greedy actions
+
+plt.figure('Figure xxx')
+
+for i in range(x_num):
+	index_reverse = which(greedy_action[i, :] == -1)
+	index_zero = which(greedy_action[i, :] == 0)
+	index_forward = which(greedy_action[i, :] == 1)
+	plt.plot([x[i]]*(len(index_reverse)), v[index_reverse], "ro", markersize = 1)
+	plt.plot([x[i]]*(len(index_zero)), v[index_zero], "go", markersize = 1)
+	plt.plot([x[i]]*(len(index_forward)), v[index_forward], "bo", markersize = 1)
+
+
+plt.title('Greedy actions')
+plt.xlabel('position')
+plt.ylabel('velocity')
+plt.xticks([-1.2, 0.0, 0.5])
+plt.yticks([-0.07, 0.0, 0.07])
+#plt.xticks(np.arange(start = x_min, stop = x_max, step = 0.2))
+#plt.yticks(np.arange(start = v_min, stop = v_max, step = 0.02))
+plt.show()
+
+# trajectory using greedy actions
+
+#seed = 543
+#np.random.seed(seed)  # Set random seed for reproducibility.
+
+state_trajectory = []
+action_trajectory = []
+x0 = np.random.uniform(low = -0.6, high = -0.4, size = 1)  # initial position
+v0 = 0.0  # initial velocity
+state = [float(x0), v0]  # initial state
+print("state = ", state)
+state_trajectory.append(state)
+status = is_terminal(state)
+while status == False:
+	prob = action_prob(state, theta, x_pts, v_pts, sd)
+	index = np.argmax(prob)
+	move = action[index]
+	action_trajectory.append(move)
+	step.obj = step(state, move)
+	next_state = step.obj['next_state']
+	state_trajectory.append(next_state)
+	if is_terminal(next_state) == True:
+		status = True
+		action_trajectory.append(0)
+	else:
+		state = next_state
+
+x_trajectory = np.zeros(len(state_trajectory))
+
+for i in range(len(x_trajectory)):
+	x_trajectory[i] = state_trajectory[i][0]
+
+x_trajectory
+
+action_trajectory
+
+color = ["red", "green", "blue"]
+
+plt.figure('Figure xxx')
+#plt.plot(x_trajectory, range(len(x_trajectory)), 'k-')
+for i in range(len(x_trajectory)):
+	move = action_trajectory[i]
+	if move == -1:
+		plt.plot(x_trajectory[i], i, "w<", markersize = 1, markeredgecolor = color[0])
+	elif move == 0:
+		plt.plot(x_trajectory[i], i, "wo", markersize = 1, markeredgecolor = color[1])
+	else:
+		plt.plot(x_trajectory[i], i, "w>", markersize = 1, markeredgecolor = color[2])
+
+#plt.plot(x_trajectory, range(len(x_trajectory)), "wo", markersize = 5, markeredgecolor = 'red')
+plt.title('position trajectory')
+plt.xlabel('position')
+plt.ylabel('time step')
+plt.show()
+
+##################

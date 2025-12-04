@@ -1,0 +1,371 @@
+##################
+
+# Python code for Example 6.2.3: Two-dimensional maze
+
+# Find optimal state-action values using Dyna-Q with prioritized sweeping.
+
+# In this approach, we pretend that we do not know the dynamics of the environment, 
+# and the dynamics will be learned from real experience.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+which = lambda status: np.arange(len(status))[status]
+
+# match_index function: Find the indices of the first 3 indices of a 4-dimensional array such that their outputs are the same 2-dimensional target state.
+# usage: match_index(next_state_model, state_hat)
+
+def match_index(A, target_state):
+	a0 = A[:, :, :, 0].flatten()
+	index0 = which(a0 == target_state[0]) 
+	a1 = A[:, :, :, 1].flatten()
+	index1 = which(a1 == target_state[1]) 
+	linear_index = []
+	for i in range(len(index0)):
+		if index0[i] in index1:
+			linear_index.append(index0[i])
+	_, n2, n3, _ = np.shape(A)
+	index = []
+	for m in linear_index:
+		quotient = m//(n2*n3)
+		remainder = m%(n2*n3)
+		i = quotient
+		j = remainder//n3
+		k = remainder%n3
+		index.append([i, j, k])
+	return index
+
+# parameter settings
+
+# Number of planning steps (>0) must be large enough as to show the effectiveness.
+
+#plan_steps = 30  
+#plan_steps = 5  
+#plan_steps = 20  
+plan_steps = 50  
+
+nrow = 7  # number of rows
+ncol = 7  # number of columns
+
+discount = 0.95
+eps = 1.0e-5  # should be small enough
+
+prob_eps = 0.1
+threshold = 1.0e-5
+
+alpha = 0.01
+
+# action: ["left", "up", "right", "down"]: [0, 1, 2, 3]
+
+# move_increment = [np.array([0, -1]), np.array([-1, 0]), np.array([0, 1]), np.array([1, 0])]]
+
+action_word = np.array(["left", "up", "right", "down"])
+
+action = np.array([0, 1, 2, 3])
+action_num = 4
+
+state_action_value = np.zeros(shape = (nrow, ncol, action_num))
+
+obstacle = [[1, 5], [2, 2], [3, 4], [5, 1], [5, 4], [5, 5], [5, 6]]
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (nrow, ncol, action_num))
+
+# environment
+
+def is_terminal(state): 
+	status = False
+	x, y = state
+	if (x == 6) and (y == 6): 
+		status = True
+	return status
+
+from sys import exit
+
+def step(state, action):
+	obstacle = [[1, 5], [2, 2], [3, 4], [5, 1], [5, 4], [5, 5], [5, 6]]
+	x, y = state
+	if [x, y] in obstacle:
+		print("The state is an obstacle!")
+		print("state = ", state)
+		exit()
+	else:
+		status = is_terminal(state)
+		if status == True: 
+			next_state = state
+			reward = 0
+		else:
+			if action == 0: # move left 
+				next_state = state + np.array([0, -1])
+			if action == 1: # move up 
+				next_state = state + np.array([-1, 0])
+			if action == 2: # move right
+				next_state = state + np.array([0, 1])
+			if action == 3: # move down 
+				next_state = state + np.array([1, 0])
+			x, y = next_state
+			x = np.clip(x, 0, nrow - 1)
+			y = np.clip(y, 0, ncol - 1)
+			if [x, y] in obstacle:
+				next_state = state
+			else:
+				next_state[0] = x
+				next_state[1] = y
+			x, y = next_state
+			if is_terminal([x, y]):
+				reward = 0
+			else:
+				reward = -1
+	return {"next_state": next_state, "reward": reward}
+
+# initial policy
+
+action_prob = np.zeros(shape = (nrow, ncol, action_num))
+for i in range(nrow):
+	for j in range(ncol):
+		state = [i, j]
+		if is_terminal(state):
+			continue
+		elif state in obstacle:
+			continue
+		else:
+			action_prob[i, j, :] = 0.25
+
+def eps_greedy_move(state, state_action_value, prob_eps, eps):
+	x, y = state
+	status = [x, y] in obstacle
+	if status == False:
+		if is_terminal(state):
+			move = int(np.random.choice(action, size = 1))
+		else:
+			rand_num = np.random.uniform(low = 0, high = 1, size = 1)
+			if rand_num < prob_eps:
+				move = int(np.random.choice(action, size = 1))
+			else:
+				q_values = state_action_value[state[0], state[1], :]
+				q_max = np.max(q_values)
+				index_max = which(np.abs(q_values - q_max) < eps)
+				move = int(np.random.choice(index_max, size = 1))
+	return move
+
+next_state_model = np.zeros(shape = (nrow, ncol, action_num, 2), dtype = int)
+
+# In the following statement, [99, 99] represents unspecified next state initially.
+# Without this, there will be many (state, action) pairs whose next state is [0, 0].
+
+next_state_model[:, :, :, :] = [99, 99] 
+next_state_model[6, 6, :, :] = [6, 6]
+
+next_reward_model = np.zeros(shape = (nrow, ncol, action_num))
+
+# main loop
+
+#episode_num = 10000
+
+episode_num = 10000  # for testing purpose only
+
+num_steps_real = np.zeros(episode_num, dtype = int)
+
+visit_status = np.zeros(shape = (nrow, ncol, action_num), dtype = int)
+visit_status[6, 6, :] = 1
+
+plan_depth = np.zeros(episode_num, dtype = int)
+max_queue_num = np.zeros(episode_num, dtype = int)
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for episode in range(episode_num):
+	if episode == 0 or (episode+1) % 1000 == 0:
+		print("episode = ", episode+1)
+	#state_trajectory = []
+	state = [0, 0]  # initial state
+	#state_trajectory.append(state)
+	status = is_terminal(state)
+	while status == False:
+		# Choose an action.
+		move = eps_greedy_move(state, state_action_value, prob_eps, eps)
+		visit_status[state[0], state[1], move] = 1
+		step_obj = step(state, move)
+		next_state = step_obj['next_state']
+		reward = step_obj['reward']
+		num_steps_real[episode] = num_steps_real[episode] + 1
+		# model learning
+		next_state_model[state[0], state[1], move, :] = next_state
+		next_reward_model[state[0], state[1], move] = reward
+		if is_terminal(next_state) == True:
+			status = True
+			value = state_action_value[state[0], state[1], move]
+			reward = 0
+			next_opt_value = 0
+		else:
+			value = state_action_value[state[0], state[1], move]
+			next_opt_value = np.max(state_action_value[next_state[0], next_state[1], :])
+		diff = reward + discount * next_opt_value - value
+		abs_diff = np.abs(diff)
+		if abs_diff <= threshold: # no planning
+			state = next_state
+		else:
+			# direct reinforcement learning
+			value = value + alpha * diff
+			state_action_value[state[0], state[1], move] = value
+			# Start planning: working backward for at most plan_steps steps
+			plan_go = True
+			plan_count = 0
+			queue_state = []
+			queue_move = []
+			queue_priority = 0
+			state_hat = state
+			while plan_go:
+				plan_count = plan_count + 1
+				plan_depth[episode] = plan_count
+				sa_pair = match_index(next_state_model, state_hat)
+				if len(sa_pair) > 4:
+					print("state_hat = ", state_hat)
+					print("sa_pair = ", sa_pair)
+				queue_count = 0
+				queue_count_max = 0
+				#print("len(sa_pair) = ", len(sa_pair))
+				for m in range(len(sa_pair)):
+					i, j, k = sa_pair[m]
+					state_tilde = [i, j]
+					move_tilde = k
+					if m == 0:
+						reward_hat = next_reward_model[state_tilde[0], state_tilde[1], move_tilde]
+						q_hat_max =  np.max(state_action_value[state_hat[0], state_hat[1], :])
+						add_hat = reward_hat + discount * q_hat_max
+					value_tilde = state_action_value[state_tilde[0], state_tilde[1], move_tilde]
+					diff = add_hat - value_tilde
+					abs_diff = np.abs(diff)
+					if abs_diff > threshold:
+						if abs_diff > queue_priority:
+							queue_count = queue_count + 1
+							queue_state = state_tilde
+							queue_move = move_tilde
+							queue_diff = diff
+							queue_priority = abs_diff
+				#print("queue_count = ", queue_count)
+				if queue_count > 0:
+					value = state_action_value[queue_state[0], queue_state[1], queue_move]
+					value = value + alpha * queue_diff
+					state_action_value[queue_state[0], queue_state[1], queue_move] = value
+					state_hat = queue_state
+				else:
+					plan_go = False
+				if queue_count > queue_count_max:
+					queue_count_max = queue_count
+				if queue_count_max > max_queue_num[episode]:
+					max_queue_num[episode] = queue_count_max
+				#print("queue_count_max = ", queue_count_max)
+				#print("max_queue_num[episode] = ", max_queue_num[episode])
+				if plan_count == plan_steps:
+					plan_go = False
+			state = next_state
+
+# Print the results.
+
+visit_status
+np.sum(visit_status == 0)
+np.sum(visit_status == 1)
+
+next_state_model[6, 6, :, :]
+next_state_model[6, 5, :, :]
+next_state_model[6, 4, :, :]
+next_state_model[6, 3, :, :]
+
+next_reward_model[6, 6, :]
+next_reward_model[6, 5, :]
+next_reward_model[6, 4, :]
+next_reward_model[6, 3, :]
+
+state_action_value[0, 0, :]
+np.max(state_action_value[0, 0, :])
+
+plot_step = 100
+
+index = np.arange(start = 0, stop = episode_num, step = plot_step, dtype = int)
+
+plt.plot(index, num_steps_real[index], 'k-')
+plt.xlabel('episode')
+plt.ylabel('number of real steps')
+plt.show()
+
+plan_depth
+np.percentile(plan_depth, [0, 25, 50, 75, 100])
+np.unique(plan_depth)
+np.bincount(plan_depth)
+
+max_queue_num
+np.percentile(max_queue_num, [0, 25, 50, 75, 100])
+np.unique(max_queue_num)
+np.bincount(max_queue_num)
+
+'''
+plt.subplots_adjust(hspace = 0.7, wspace = 0.5)
+plt.subplot(121)
+plt.boxplot(plan_depth)
+#plt.ylim(0, plan_steps)
+plt.xticks([])
+plt.title('plan_depth')
+plt.ylabel('planning depth')
+plt.subplot(122)
+plt.boxplot(max_queue_num)
+#plt.ylim(0, 100)
+plt.xticks([])
+plt.title('max_queue_num')
+plt.ylabel('max queue number')
+plt.show()
+'''
+
+# Find greedy actions.
+
+for i in range(nrow):
+	for j in range(ncol):
+		current_state = [i, j]
+		if is_terminal(current_state): 
+			continue
+		elif current_state in obstacle:
+			continue
+		else:
+			max_q_value = np.max(state_action_value[i, j, :])
+			index_max = which(np.abs(state_action_value[i, j, :] - max_q_value) < eps)
+			greedy_action[i, j, :] = np.zeros(action_num)
+			greedy_action[i, j, index_max] = 1
+
+for i in range(nrow): 
+	for j in range(ncol):
+		current_state = [i, j]
+		if is_terminal(current_state):
+			print("state = ", [i, j], "  greedy action = ", [])
+		elif current_state in obstacle:
+			print("state = ", [i, j], "  greedy action = ", [])
+		else:
+			index_max = which(greedy_action[i, j, :] == 1)
+			print("state = ", [i, j], "  greedy action = ", action_word[index_max])
+
+# trajectory using greedy actions
+
+i = 0
+final_return = 0
+state = [0, 0]
+status = is_terminal(state)
+while status == False:
+	index_max = which(greedy_action[state[0], state[1], :] == 1)
+	move = index_max[0]
+	print("i = ", i, "  state = ", state, "  move = ", action_word[move])
+	step_obj = step(state, move)
+	next_state = step_obj['next_state']
+	reward = step_obj['reward']
+	#final_return = final_return + reward
+	state = next_state
+	i = i + 1
+	status = is_terminal(state)
+	if status == True:
+		print("i = ", i, "  state = ", state, "  move = ", "halt")
+
+##################

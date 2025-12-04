@@ -1,0 +1,188 @@
+# Python code for Example 3.2.1: One-dimensional Markov decision process
+
+# Find state values and state-action values using on-policy Monte Carlo prediction method.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+n = 5  # number of states
+
+discount = 0.95
+eps = 1.0e-5  # should be small enough
+
+# action: ["left", "right"]: [0, 1]
+
+action_word = np.array(["left", "right"])
+
+action = np.array([0, 1])
+action_num = 2
+
+action_prob = np.array([0.6, 0.4])
+
+state_value = np.zeros(n)
+
+state_action_value = np.zeros(shape = (n, action_num))
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (n, action_num))
+
+# environment
+
+def is_terminal(state): 
+	x = state
+	status = False
+	if x == 4:
+		status = True
+	return status
+
+def get_initial():
+	bingo = True
+	while bingo:
+		i = np.random.randint(low = 0, high = n)
+		state = i
+		if is_terminal(state): 
+			continue
+		else:
+			bingo = False
+	return state
+
+def step(state, action):
+	x = state
+	if is_terminal(x):
+		next_state = x
+		reward = 0.0
+	elif x == 0:
+		next_state = x + 1
+		reward = -1.0
+	else:
+		reward = -1.0
+		if action == 0: # move left 
+			next_state = x - 1
+		if action == 1: # move right 
+			next_state = x + 1
+		if is_terminal(next_state):
+			reward = 0.0
+	return {"next_state": next_state, "reward": reward}
+
+state_visit_num = np.zeros(n, dtype = int)
+state_return_accum = np.zeros(n)
+
+state_action_visit_num = np.zeros(shape = (n, action_num), dtype = int)
+state_action_return_accum = np.zeros(shape = (n, action_num))
+
+# main loop
+
+#episode_num = 10000
+
+episode_num = 10000  # for testing purpose only
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for episode in range(episode_num):
+	#print("")
+	#print("episode = ", episode)
+	# some initialization
+	state_trajectory = []
+	state_action_trajectory = []
+	reward_seq = []
+	# Get a random initial state: Exploring starts.
+	state = get_initial()
+	state_trajectory.append(state)
+	# Game starts!
+	status = is_terminal(state)
+	while status == False:
+		# Choose an action.
+		move = int(np.random.choice(action, size = 1, p = action_prob))
+		state_action = [state, move]
+		state_action_trajectory.append(state_action)
+		step_obj = step(state, move)
+		next_state = step_obj["next_state"]
+		reward = step_obj["reward"]
+		state_trajectory.append(next_state)
+		reward_seq.append(reward)
+		state = next_state
+		status = is_terminal(state)
+		if status:
+			state_visit_num[state] = state_visit_num[state] + 1
+	#print("state_trajectory = ", state_trajectory)
+	#print("state_action_trajectory = ", state_action_trajectory)
+	#print("reward_seq = ", reward_seq)
+	# Update the state-action-value and state-value, and find the greedy actions.
+	m = len(state_action_trajectory)
+	#print("m = ", m)
+	G = 0
+	for i in range(m-1, -1, -1):
+		#print("i = ", i)
+		G = discount * G + reward_seq[i]
+		#print("G = ", G)
+		# Estimate the state values of the policy.
+		state = state_trajectory[i]
+		k0 = state
+		state_visit_num[k0] = state_visit_num[k0] + 1
+		state_return_accum[k0] = state_return_accum[k0] + G
+		state_value[k0] = state_return_accum[k0] / state_visit_num[k0]
+		#print("state_visit_num = ", state_visit_num[k0])
+		#print("state_return_accum = ", state_return_accum[k0])
+		#print("state_value = ", state_value[k0])
+		# Estimate the state-action-value of the policy.
+		state_action = state_action_trajectory[i]
+		k0, k1 = state_action
+		#print("state_action = ", state_action)
+		state_action_visit_num[k0, k1] = state_action_visit_num[k0, k1] + 1
+		state_action_return_accum[k0, k1] = state_action_return_accum[k0, k1] + G
+		state_action_value[k0, k1] = state_action_return_accum[k0, k1] / state_action_visit_num[k0, k1]
+		#print("state_action_visit_num = ", state_action_visit_num[k0, k1])
+		#print("state_action_return_accum = ", state_action_return_accum[k0, k1])
+		#print("state_action_value = ", state_action_value[k0, k1])
+		# Find greedy actions.
+		q_values = state_action_value[k0, :]
+		q_max = np.max(q_values)
+		index_max = which(np.abs(q_values - q_max) < eps)
+		greedy_action[k0, :] = np.zeros(action_num)
+		greedy_action[k0, index_max] = 1
+
+
+# final results
+
+np.round(state_value, 4)
+
+np.round(state_action_value, 4)
+
+state_visit_num
+
+state_visit_num = state_visit_num.flatten()
+index = which(state_visit_num > 0)
+
+plt.boxplot(state_visit_num[index])
+plt.title('Number of state visits')
+plt.xticks([])
+plt.show()
+
+state_action_visit_num
+
+state_action_visit_num = state_action_visit_num.flatten()
+index = which(state_action_visit_num > 0)
+
+plt.boxplot(state_action_visit_num[index])
+plt.title('Number of state-action visits')
+plt.xticks([])
+plt.show()
+
+for i in range(n): 
+	if is_terminal(i):
+		print("state = ", i, "  greedy action = ", [])
+	else:
+		index_max = which(greedy_action[i, :] == 1)
+		print("state = ", i, "  greedy action = ", action_word[index_max])
+
+##################

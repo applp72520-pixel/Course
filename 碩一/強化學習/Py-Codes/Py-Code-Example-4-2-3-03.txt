@@ -1,0 +1,252 @@
+# Python code for Example 4.2.3: Two-dimensional maze
+
+# Find optimal policy using Expected Sarsa algorithm.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+nrow = 7  # number of rows
+ncol = 8  # number of columns
+
+discount = 0.95
+eps = 1.0e-5  # should be small enough
+
+prob_eps = 0.1
+
+alpha = 0.01
+
+# action: ["left", "up", "right", "down"]: [0, 1, 2, 3]
+
+# move_increment = [np.array([0, -1]), np.array([-1, 0]), np.array([0, 1]), np.array([1, 0])]]
+
+action_word = np.array(["left", "up", "right", "down"])
+
+action = np.array([0, 1, 2, 3])
+action_num = 4
+
+state_action_value = np.zeros(shape = (nrow, ncol, action_num))
+
+obstacle = [[4, 0], [5, 2], [5, 4], [4, 7]]
+trap = [[1, 2], [1, 3], [1, 4], [1, 5]]
+
+greedy_action = np.zeros(shape = (nrow, ncol, action_num))
+
+action_prob = np.zeros(shape = (nrow, ncol, action_num))
+action_prob[:,:,:] = 0.25
+
+def is_terminal(state): 
+	if (state[0] == 2) and (state[1]== 6):
+		status = True
+	else: 
+		status = False
+	return status
+
+from sys import exit
+
+def step(state, action): 
+	obstacle = [[4, 0], [5, 2], [5, 4], [4, 7]]
+	trap = [[1, 2], [1, 3], [1, 4], [1, 5]]
+	x, y = state
+	if [x, y] in obstacle:
+		print("The state is an obstacle!")
+		print("state = ", state)
+		exit()
+	else:
+		status = is_terminal(state)
+		if status == True: 
+			next_state = state
+			reward = 0
+		elif [x, y] in trap:
+			next_state = [0, 0]
+			reward = -50
+		else:
+			if action == 0: # move left 
+				next_state = state + np.array([0, -1])
+			if action == 1: # move up 
+				next_state = state + np.array([-1, 0])
+			if action == 2: # move right
+				next_state = state + np.array([0, 1])
+			if action == 3: # move down 
+				next_state = state + np.array([1, 0])
+			x, y = next_state
+			x = np.clip(x, 0, nrow - 1)
+			y = np.clip(y, 0, ncol - 1)
+			if [x, y] in obstacle:
+				next_state = state
+			else:
+				next_state[0] = x
+				next_state[1] = y
+			x, y = next_state
+			if is_terminal([x, y]):
+				reward = 0
+			else:
+				reward = -1
+	return {"next_state": next_state, "reward": reward}
+
+# initial policy
+
+action_prob = np.zeros(shape = (nrow, ncol, action_num))
+for i in range(nrow):
+	for j in range(ncol):
+		state = [i, j]
+		if is_terminal(state):
+			continue
+		elif state in obstacle:
+			continue
+		elif state in trap:
+			continue
+		else:
+			action_prob[i, j, :] = 0.25
+
+def eps_greedy_move(state, state_action_value, prob_eps, eps):
+	obstacle = [[4, 0], [5, 2], [5, 4], [4, 7]]
+	trap = [[1, 2], [1, 3], [1, 4], [1, 5]]
+	x, y = state
+	if [x, y] in obstacle:
+		print("The state is an obstacle!")
+		print("state = ", state)
+		exit()
+	else:
+		if is_terminal([x, y]):
+			move = int(np.random.choice(action, size = 1))
+		elif [x, y] in trap:
+			move = int(np.random.choice(action, size = 1))
+		else:
+			rand_num = np.random.uniform(low = 0, high = 1, size = 1)
+			if rand_num < prob_eps:
+				move = int(np.random.choice(action, size = 1))
+			else:
+				q_values = state_action_value[state[0], state[1], :]
+				q_max = np.max(q_values)
+				index_max = which(np.abs(q_values - q_max) < eps)
+				move = int(np.random.choice(index_max, size = 1))
+	return move
+
+# main loop
+
+#episode_num = 10000
+
+episode_num = 10000  # for testing purpose only
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for episode in range(episode_num):
+	if episode == 0 or (episode+1) % 1000 == 0:
+		print("episode = ", episode+1)
+	# Get an initial state.
+	state = [0, 0]  # initial state
+	# Game starts!
+	status = is_terminal(state)
+	while status == False:
+		# Choose an action.
+		move = eps_greedy_move(state, state_action_value, prob_eps, eps)
+		step_obj = step(state, move)
+		next_state = list(step_obj["next_state"])
+		reward = step_obj["reward"]
+		if is_terminal(next_state):
+			status = True
+			value = state_action_value[state[0], state[1], move]
+			reward = 0
+			next_expected_mean = 0
+			value = value + alpha * (reward + discount * next_expected_mean - value)
+			state_action_value[state[0], state[1], move] = value
+			state = next_state
+		else:
+			value = state_action_value[state[0], state[1], move]
+			next_values = state_action_value[next_state[0], next_state[1], :]
+			prob = action_prob[next_state[0], next_state[1], :]
+			next_expected_mean = np.sum(prob * next_values)
+			value = value + alpha * (reward + discount * next_expected_mean - value)
+			state_action_value[state[0], state[1], move] = value
+			# policy improvement
+			i, j = state
+			q_value = state_action_value[i, j, :]
+			q_max = np.max(q_value)
+			index_max = which(np.abs(q_value - q_max) < eps)
+			n1 = len(index_max)
+			n2 = action_num - n1
+			if n1 == action_num:
+				action_prob[i, j, :] = 1 / action_num
+			else:
+				for k in range(action_num):
+					if k in index_max:
+						action_prob[i, j, k] = (1 - prob_eps) / n1
+					else:
+						action_prob[i, j, k] = prob_eps / n2
+			state = next_state
+			status = is_terminal(state)
+
+# Print out the results.
+
+state_value = np.zeros(shape = (nrow, ncol))
+
+for i in range(nrow):
+	for j in range(ncol):
+		if is_terminal([i, j]):
+			continue
+		elif [i, j] in obstacle:
+			continue
+		else:
+			state_value[i, j] = np.max(state_action_value[i, j, :])
+
+np.round(state_value, 4)
+
+np.round(state_action_value, 4)
+
+# Find greedy actions.
+
+for i in range(nrow):
+	for j in range(ncol):
+		current_state = [i, j]
+		if is_terminal(current_state): 
+			continue
+		elif current_state in obstacle:
+				continue
+		elif current_state in trap:
+				continue
+		else:
+			max_q_value = np.max(state_action_value[i, j, :])
+			index_max = which(np.abs(state_action_value[i, j, :] - max_q_value) < eps)
+			greedy_action[i, j, :] = np.zeros(action_num)
+			greedy_action[i, j, index_max] = 1
+
+for i in range(nrow): 
+	for j in range(ncol):
+		current_state = [i, j]
+		if is_terminal(current_state):
+			print("state = ", [i, j], "  greedy action = ", [])
+		elif current_state in obstacle:
+			print("state = ", [i, j], "  greedy action = ", [])
+		elif current_state in trap:
+			print("state = ", [i, j], "  greedy action = ", [])
+		else:
+			index_max = which(greedy_action[i, j, :] == 1)
+			print("state = ", [i, j], "  greedy action = ", action_word[index_max])
+
+# trajectory using greedy actions
+
+i = 0
+state = [0, 0]
+status = is_terminal(state)
+while status == False:
+	index_max = which(greedy_action[state[0], state[1], :] == 1)
+	move = index_max[0]
+	print("i = ", i, "  state = ", state, "  move = ", action_word[move])
+	step_obj = step(state, move)
+	next_state = step_obj['next_state']
+	reward = step_obj['reward']
+	state = next_state
+	i = i + 1
+	status = is_terminal(state)
+	if status == True:
+		print("i = ", i, "  state = ", state, "  move = ", "halt")
+
+##################

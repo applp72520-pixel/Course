@@ -1,0 +1,422 @@
+##################
+
+## Example 7.5.3: Mountain Car Task
+
+## Find optimal policy using Q-learning
+## approximate state-action function: artificial neural network
+
+project_name = 'example-7-5-3'
+
+##################
+
+# Change the current working directory to the specified path.
+
+import os
+
+mywd = "D:\Fundamental-Reinforcement-Learning"
+
+os.chdir(mywd)
+os.getcwd()
+
+import os
+
+#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Use CPU.
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Use GPU.
+
+##################
+
+# Set random seed for reproducibility.
+
+seed = 543
+from numpy import random
+random.seed(seed)
+from tensorflow.random import set_seed
+set_seed(seed)
+
+# Import packages and functions.
+
+import numpy as np
+from keras.models import Sequential, load_model
+from keras.layers import Dense
+from copy import deepcopy
+import matplotlib.pyplot as plt
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+# parameter settings
+
+prob_eps = 0.1
+
+discount = 1.0
+
+# state = [position, velocity]
+
+# Three possible actions: 
+# full throttle forward (+1), full throttle reverse (-1), and zero throttle (0).
+
+action_word = np.array(["reverse", "zero", "forward"])
+
+action = np.array([-1, 0, 1])
+action_num = 3
+
+# building environment
+
+x_min = -1.2; x_max = 0.5
+v_min = -0.07; v_max = 0.07
+
+def is_terminal(state): 
+	x = state[0]
+	status = False
+	if x >= x_max:
+		status = True
+	return status
+
+def step(state, action):
+	x, v = state
+	if is_terminal(state):
+		x_new = x_max
+		v_new = 0
+		reward = 0
+	else:
+		reward = -1.0
+		v_new = -0.0025 * np.cos(3 * x) + v + 0.001 * action 
+		v_new = np.clip(v_new, v_min, v_max)
+		x_new = x + v_new
+		x_new = np.clip(x_new, x_min, x_max)
+		if x_new == x_min:
+			v_new = 0.0
+		if x_new == x_max:
+			v_new = 0.0
+			reward = 0.0
+	next_state = [x_new, v_new]
+	return {"next_state": next_state, "reward": reward}
+
+# Build a neural network model for approximate state-action function.
+
+sa_model = Sequential()
+sa_model.add(Dense(units = 7, input_dim = 3, 
+	kernel_initializer = 'uniform', activation = 'relu'))
+sa_model.add(Dense(units = 6, 
+	kernel_initializer = 'uniform', activation = 'relu'))
+sa_model.add(Dense(units = 1, 
+	kernel_initializer = 'uniform', activation = 'linear'))
+
+sa_model.summary()
+
+# Compile the model.
+
+sa_model.compile(loss = 'mse', optimizer = 'adam', metrics = ['mae'])
+
+def q_value(state, move, sa_model):
+	if is_terminal(state):
+		q_hat = 0.0
+	else:
+		q_hat = sa_model.predict(x = np.expand_dims([state[0], state[1], move], axis = 0)).flatten()
+	return q_hat
+
+def greedy_move(state, sa_model):
+	if is_terminal(state):
+		move = 0
+	else:
+		q_reverse = q_value(state, -1, sa_model)
+		q_zero = q_value(state, 0, sa_model)
+		q_forward = q_value(state, 1, sa_model)
+		q_max = q_zero
+		move = 0
+		if q_reverse > q_max:
+			q_max = q_reverse
+			move = -1
+		if q_forward > q_max:
+			q_max = q_forward
+			move = 1
+	return move
+
+def eps_greedy_move(state, sa_model):
+	if is_terminal(state):
+		move = 0
+	else:
+		prob_eps = 0.1
+		rand_num = np.random.uniform(low = 0, high = 1, size = 1)
+		if rand_num < prob_eps:
+			move = int(np.random.choice([-1, 0, 1], size = 1))
+		else:
+			move = greedy_move(state, sa_model)
+	return move
+
+# main loop
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+#episode_num = 1000  # This number is good enough!
+
+episode_num = 1000  # for testing purpose only
+
+num_steps = np.zeros(episode_num, dtype = int)
+
+max_steps = 10000
+
+for episode in range(episode_num):
+	print("")
+	print("episode = ", episode+1)
+	# some initialization
+	state_trajectory = []
+	x = np.random.uniform(low = -0.6, high = -0.4, size = 1)  # initial position
+	v = 0.0  # initial velocity
+	state = [float(x), v]  # initial state
+	print("initial_state = ", state)
+	state_trajectory.append(state)
+	# Choose an initial action using eps-greedy policy.
+	move = eps_greedy_move(state, sa_model)
+	status = is_terminal(state)
+	while status == False:
+		step.obj = step(state, move)
+		next_state = step.obj['next_state']
+		reward = step.obj['reward']
+		if is_terminal(next_state):
+			print("final_state = ", next_state)
+			new_input = np.expand_dims([state[0], state[1], move], axis = 0)
+			new_target = reward
+			new_target = np.expand_dims(new_target, axis = 0)
+			score = sa_model.train_on_batch(x = new_input, y = new_target)
+			status = True
+		else: 
+			# Choose the next action using eps-greedy policy.
+			next_move = eps_greedy_move(next_state, sa_model)
+			q_reverse = q_value(next_state, -1, sa_model)
+			q_zero = q_value(next_state, 0, sa_model)
+			q_forward = q_value(next_state, 1, sa_model)
+			new_input = np.expand_dims([state[0], state[1], move], axis = 0)
+			new_target = reward + discount * np.max([q_reverse, q_zero, q_forward])
+			new_target = np.expand_dims(new_target, axis = 0)
+			score = sa_model.train_on_batch(x = new_input, y = new_target)
+			state = next_state
+			move = next_move
+			state_trajectory.append(state)
+			status = is_terminal(state)
+			if len(state_trajectory) == max_steps:
+				status = True
+	num_steps[episode] = len(state_trajectory) - 1
+	print("number of steps = ", num_steps[episode])
+
+# Print the results.
+
+results = {'num_steps': num_steps}
+
+'''
+# Save the results to NPZ file.
+
+path_save_results = mywd + "\\Py-Objects\\" + project_name + "_results"
+
+np.savez(path_save_results, **results)
+
+'''
+'''
+# Load the results of NPZ file.
+
+path_load_results = mywd + "\\Py-Objects\\" + project_name + "_results" + ".npz"
+
+results = np.load(path_load_results, allow_pickle = True)
+
+results.files
+
+results['num_steps']
+
+num_steps = results['num_steps']
+
+'''
+
+'''
+# Save the model to HDF5 file.
+
+path_model_hdf5 = mywd + "\\Py-Objects\\" + project_name + ".h5"
+
+sa_model.save(path_model_hdf5, overwrite = True)
+
+'''
+'''
+# Load model of HDF5 file. 
+
+path_model_hdf5 = mywd + "\\Py-Objects\\" + project_name + ".h5"
+
+loaded_model = load_model(path_model_hdf5)
+
+sa_model = loaded_model
+
+'''
+
+# number of steps in the episode
+
+plt.plot(range(episode_num), num_steps, 'k-')
+plt.title('Q-learning with ANN')
+plt.xlabel('episode')
+plt.ylabel('number of steps in the episode')
+plt.show()
+
+np.min(num_steps)
+np.max(num_steps)
+np.mean(num_steps)
+np.median(num_steps)
+
+plt.subplots_adjust(hspace = 0.7, wspace = 0.5)
+plt.subplot(121)
+plt.boxplot(num_steps)
+#plt.ylim(0, 2000)
+plt.xticks([])
+plt.title('Q-learning')
+plt.ylabel('number of steps')
+plt.subplot(122)
+plt.boxplot(num_steps)
+plt.ylim(0, 2500)
+plt.xticks([])
+plt.title('Q-learning')
+plt.ylabel('number of steps')
+plt.show()
+
+# Preparation for plotting
+
+x_num = 101
+v_num = 101 
+
+x = np.linspace(start = x_min, stop = x_max, num = x_num)
+v = np.linspace(start = v_min, stop = v_max, num = v_num)
+
+X, V = np.meshgrid(x, v)
+X.shape; V.shape
+len(np.unique(X)); len(np.unique(V))
+
+state_value = np.zeros(shape = (x_num, v_num))
+
+greedy_action = np.zeros(shape = (x_num, v_num))
+
+for i in range(x_num):
+	for j in range(v_num):
+		state = np.array([X[i, j], V[i, j]])
+		move = greedy_move(state, sa_model)
+		greedy_action[i, j] = move
+		state_value[i, j] = q_value(state, move, sa_model)
+
+'''
+
+# cost-to-go function is the negative of the state value function.
+
+cost_to_go = (-1.0) * state_value
+
+# Figure 10.1: plot of cost-to-go function: perspective plot or surface plot using wireframe() or surface()
+
+from mpl_toolkits.mplot3d import Axes3D
+
+fig = plt.figure('Figure xxx')
+ax = plt.axes(projection = '3d')
+ax.plot_wireframe(X, V, cost_to_go, color = 'brown', rstride = 1, cstride = 1)  # using wireframe()
+#ax.plot_surface(X, V, cost_to_go, rstride = 1, cstride = 1, cmap = 'viridis', edgecolor = 'none')  # using surface()
+ax.set_title("Q-learning with ANN", fontsize = 10)
+ax.set_xlabel('position', fontsize = 8)
+ax.set_ylabel('velocity', fontsize = 8)
+ax.set_zlabel('cost-to-go value', fontsize = 8)
+plt.xticks([-1.2, 0.0, 0.5])
+plt.yticks([-0.07, 0.0, 0.07])
+#plt.xticks(np.arange(start = x_min, stop = x_max, step = 0.2))
+#plt.yticks(np.arange(start = v_min, stop = v_max, step = 0.02))
+plt.show()
+
+'''
+
+'''
+# Figure xxx: plot of state value: perspective plot or surface plot using wireframe() or surface()
+
+from mpl_toolkits.mplot3d import Axes3D
+
+fig = plt.figure('Figure xxx')
+ax = plt.axes(projection = '3d')
+ax.plot_wireframe(X, V, state_value, color = 'brown', rstride = 1, cstride = 1)  # using wireframe()
+#ax.plot_surface(X, V, state_value, rstride = 1, cstride = 1, cmap = 'viridis', edgecolor = 'none')  # using surface()
+ax.set_title("Q-learning with ANN", fontsize = 10)
+ax.set_xlabel('position', fontsize = 8)
+ax.set_ylabel('velocity', fontsize = 8)
+ax.set_zlabel('state value', fontsize = 8)
+plt.xticks([-1.2, 0.0, 0.5])
+plt.yticks([-0.07, 0.0, 0.07])
+#plt.xticks(np.arange(start = x_min, stop = x_max, step = 0.2))
+#plt.yticks(np.arange(start = v_min, stop = v_max, step = 0.02))
+plt.show()
+
+'''
+
+# greedy actions
+
+plt.figure('Figure xxx')
+
+for i in range(x_num):
+	index_reverse = which(greedy_action[i, :] == -1)
+	index_zero = which(greedy_action[i, :] == 0)
+	index_forward = which(greedy_action[i, :] == 1)
+	plt.plot([x[i]]*(len(index_reverse)), v[index_reverse], "ro", markersize = 1)
+	plt.plot([x[i]]*(len(index_zero)), v[index_zero], "go", markersize = 1)
+	plt.plot([x[i]]*(len(index_forward)), v[index_forward], "bo", markersize = 1)
+
+
+plt.title('Greedy actions')
+plt.xlabel('position')
+plt.ylabel('velocity')
+plt.xticks([-1.2, 0.0, 0.5])
+plt.yticks([-0.07, 0.0, 0.07])
+#plt.xticks(np.arange(start = x_min, stop = x_max, step = 0.2))
+#plt.yticks(np.arange(start = v_min, stop = v_max, step = 0.02))
+plt.show()
+
+# trajectory using greedy actions
+
+#seed = 543
+#np.random.seed(seed)  # Set random seed for reproducibility.
+
+state_trajectory = []
+action_trajectory = []
+x0 = np.random.uniform(low = -0.6, high = -0.4, size = 1)  # initial position
+v0 = 0.0  # initial velocity
+state = [float(x0), v0]  # initial state
+state_trajectory.append(state)
+status = is_terminal(state)
+while status == False:
+	move = greedy_move(state, sa_model)
+	action_trajectory.append(move)
+	step.obj = step(state, move)
+	next_state = step.obj['next_state']
+	state_trajectory.append(next_state)
+	if is_terminal(next_state) == True:
+		status = True
+		action_trajectory.append(0)
+	else:
+		state = next_state
+
+x_trajectory = np.zeros(len(state_trajectory))
+
+for i in range(len(x_trajectory)):
+	x_trajectory[i] = state_trajectory[i][0]
+
+x_trajectory
+
+action_trajectory
+
+color = ["red", "green", "blue"]
+
+plt.figure('Figure xxx')
+#plt.plot(x_trajectory, range(len(x_trajectory)), 'k-')
+for i in range(len(x_trajectory)):
+	action = action_trajectory[i]
+	if action == -1:
+		plt.plot(x_trajectory[i], i, "w<", markersize = 1, markeredgecolor = color[0])
+	elif action == 0:
+		plt.plot(x_trajectory[i], i, "wo", markersize = 1, markeredgecolor = color[1])
+	else:
+		plt.plot(x_trajectory[i], i, "w>", markersize = 1, markeredgecolor = color[2])
+
+#plt.plot(x_trajectory, range(len(x_trajectory)), "wo", markersize = 5, markeredgecolor = 'red')
+plt.title('position trajectory')
+plt.xlabel('position')
+plt.ylabel('time step')
+plt.show()
+
+##################

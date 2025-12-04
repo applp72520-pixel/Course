@@ -1,0 +1,223 @@
+# Python code for Example 3.2.2: Two-dimensional maze
+
+# Find state values and state-action values using on-policy Monte Carlo prediction method.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+nrow = 5  # number of rows
+ncol = 5  # number of columns
+
+discount = 0.95
+eps = 1.0e-5  # should be small enough
+
+# action: ["left", "up", "right", "down"]: [0, 1, 2, 3]
+
+# move_increment = [np.array([0, -1]), np.array([-1, 0]), np.array([0, 1]), np.array([1, 0])]]
+
+action_word = np.array(["left", "up", "right", "down"])
+
+action = np.array([0, 1, 2, 3])
+action_num = 4
+
+action_prob = np.array([0.25, 0.25, 0.25, 0.25])
+
+state_value = np.zeros(shape = (nrow, ncol))
+
+state_action_value = np.zeros(shape = (nrow, ncol, action_num))
+
+obstacle = [[1, 1], [1, 3], [3, 0], [3, 2]]
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (nrow, ncol, action_num))
+
+# environment
+
+def is_terminal(state): 
+	status = False
+	x, y = state
+	if (x == 0) and (y == 0): 
+		status = True
+	if (x == (nrow - 1)) and (y == (ncol - 1)):
+		status = True
+	return status
+
+def get_initial():
+	obstacle = [[1, 1], [1, 3], [3, 0], [3, 2]]
+	bingo = True
+	while bingo:
+		i = np.random.randint(low = 0, high = nrow)
+		j = np.random.randint(low = 0, high = ncol)
+		state = [i, j]
+		if is_terminal(state): 
+			continue
+		elif state in obstacle:
+			continue
+		else:
+			bingo = False
+	return state
+
+from sys import exit
+
+def step(state, action):
+	obstacle = [[1, 1], [1, 3], [3, 0], [3, 2]]
+	x, y = state
+	if [x, y] in obstacle:
+		print("The state is an obstacle!")
+		print("state = ", state)
+		exit()
+	else:
+		status = is_terminal(state)
+		if status == True: 
+			next_state = state
+			reward = 0
+		else:
+			if action == 0: # move left 
+				next_state = state + np.array([0, -1])
+			if action == 1: # move up 
+				next_state = state + np.array([-1, 0])
+			if action == 2: # move right
+				next_state = state + np.array([0, 1])
+			if action == 3: # move down 
+				next_state = state + np.array([1, 0])
+			x, y = next_state
+			x = np.clip(x, 0, nrow - 1)
+			y = np.clip(y, 0, ncol - 1)
+			if [x, y] in obstacle:
+				next_state = state
+			else:
+				next_state[0] = x
+				next_state[1] = y
+			x, y = next_state
+			if is_terminal([x, y]):
+				reward = 0
+			else:
+				reward = -1
+	return {"next_state": next_state, "reward": reward}
+
+state_visit_num = np.zeros(shape = (nrow, ncol), dtype = int)
+state_return_accum = np.zeros(shape = (nrow, ncol))
+
+state_action_visit_num = np.zeros(shape = (nrow, ncol, action_num), dtype = int)
+state_action_return_accum = np.zeros(shape = (nrow, ncol, action_num))
+
+# main loop
+
+#episode_num = 10000
+
+episode_num = 10000  # for testing purpose only
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for episode in range(episode_num):
+	#print("")
+	#print("episode = ", episode)
+	# some initialization
+	state_trajectory = []
+	state_action_trajectory = []
+	reward_seq = []
+	# Get a random initial state: Exploring starts.
+	state = get_initial()
+	state_trajectory.append(state)
+	# Game starts!
+	status = is_terminal(state)
+	while status == False:
+		# Choose an action.
+		move = int(np.random.choice(action, size = 1, p = action_prob))
+		state_action = [state[0], state[1], move]
+		state_action_trajectory.append(state_action)
+		step_obj = step(state, move)
+		next_state = list(step_obj["next_state"])
+		reward = step_obj["reward"]
+		state_trajectory.append(next_state)
+		reward_seq.append(reward)
+		state = next_state
+		status = is_terminal(state)
+		if status:
+			state_visit_num[state[0], state[1]] = state_visit_num[state[0], state[1]] + 1
+	#print("state_trajectory = ", state_trajectory)
+	#print("state_action_trajectory = ", state_action_trajectory)
+	#print("reward_seq = ", reward_seq)
+	# Update the state-action-value and state-value, and find the greedy actions.
+	m = len(state_action_trajectory)
+	#print("m = ", m)
+	G = 0
+	for i in range(m-1, -1, -1):
+		#print("i = ", i)
+		G = discount * G + reward_seq[i]
+		#print("G = ", G)
+		# Estimate the state values of the policy.
+		state = state_trajectory[i]
+		k0, k1 = state
+		state_visit_num[k0, k1] = state_visit_num[k0, k1] + 1
+		state_return_accum[k0, k1] = state_return_accum[k0, k1] + G
+		state_value[k0, k1] = state_return_accum[k0, k1] / state_visit_num[k0, k1]
+		#print("state_visit_num = ", state_visit_num[k0, k1])
+		#print("state_return_accum = ", state_return_accum[k0, k1])
+		#print("state_value = ", state_value[k0, k1])
+		# Estimate the state-action-value of the policy.
+		state_action = state_action_trajectory[i]
+		k0, k1, k2 = state_action
+		#print("state_action = ", state_action)
+		state_action_visit_num[k0, k1, k2] = state_action_visit_num[k0, k1, k2] + 1
+		state_action_return_accum[k0, k1, k2] = state_action_return_accum[k0, k1, k2] + G
+		state_action_value[k0, k1, k2] = state_action_return_accum[k0, k1, k2] / state_action_visit_num[k0, k1, k2]
+		#print("state_action_visit_num = ", state_action_visit_num[k0, k1, k2])
+		#print("state_action_return_accum = ", state_action_return_accum[k0, k1, k2])
+		#print("state_action_value = ", state_action_value[k0, k1, k2])
+		# Find greedy actions.
+		q_values = state_action_value[k0, k1, :]
+		q_max = np.max(q_values)
+		index_max = which(np.abs(q_values - q_max) < eps)
+		greedy_action[k0, k1, :] = np.zeros(action_num)
+		greedy_action[k0, k1, index_max] = 1
+
+
+# final results
+
+np.round(state_value, 4)
+
+np.round(state_action_value, 4)
+
+state_visit_num
+
+state_visit_num = state_visit_num.flatten()
+index = which(state_visit_num > 0)
+
+plt.boxplot(state_visit_num[index])
+plt.title('Number of state visits')
+plt.xticks([])
+plt.show()
+
+state_action_visit_num
+
+state_action_visit_num = state_action_visit_num.flatten()
+index = which(state_action_visit_num > 0)
+
+plt.boxplot(state_action_visit_num[index])
+plt.title('Number of state-action visits')
+plt.xticks([])
+plt.show()
+
+for i in range(nrow): 
+	for j in range(ncol):
+		current_state = [i, j]
+		if is_terminal(current_state):
+			print("state = ", [i, j], "  greedy action = ", [])
+		elif current_state in obstacle:
+			print("state = ", [i, j], "  greedy action = ", [])
+		else:
+			index_max = which(greedy_action[i, j, :] == 1)
+			print("state = ", [i, j], "  greedy action = ", action_word[index_max])
+
+##################

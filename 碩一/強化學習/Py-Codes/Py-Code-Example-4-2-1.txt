@@ -1,0 +1,143 @@
+# Python code for Example 4.2.1: One-dimensional Markov decision process
+
+# Find state values and state-action values using one-step temporal difference prediction method.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+n = 5  # number of states
+
+discount = 0.95
+eps = 1.0e-5  # should be small enough
+
+alpha = 0.01
+
+# action: ["left", "right"]: [0, 1]
+
+action_word = np.array(["left", "right"])
+
+action = np.array([0, 1])
+action_num = 2
+
+action_prob = np.array([0.6, 0.4])
+
+state_value = np.zeros(n)
+
+state_action_value = np.zeros(shape = (n, action_num))
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (n, action_num))
+
+# environment
+
+def is_terminal(state): 
+	x = state
+	status = False
+	if x == 4:
+		status = True
+	return status
+
+def get_initial():
+	bingo = True
+	while bingo:
+		i = np.random.randint(low = 0, high = n)
+		state = i
+		if is_terminal(state): 
+			continue
+		else:
+			bingo = False
+	return state
+
+def step(state, action):
+	x = state
+	if is_terminal(x):
+		next_state = x
+		reward = 0.0
+	elif x == 0:
+		next_state = x + 1
+		reward = -1.0
+	else:
+		reward = -1.0
+		if action == 0: # move left 
+			next_state = x - 1
+		if action == 1: # move right 
+			next_state = x + 1
+		if is_terminal(next_state):
+			reward = 0.0
+	return {"next_state": next_state, "reward": reward}
+
+state_visit_num = np.zeros(n, dtype = int)
+state_return_accum = np.zeros(n)
+
+state_action_visit_num = np.zeros(shape = (n, action_num), dtype = int)
+state_action_return_accum = np.zeros(shape = (n, action_num))
+
+# main loop
+
+#episode_num = 100000
+
+episode_num = 100000  # for testing purpose only
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for episode in range(episode_num):
+	if episode == 0 or (episode+1) % 1000 == 0:
+		print("episode = ", episode+1)
+	# Get a random initial state: Exploring starts.
+	state = get_initial()
+	# Game starts!
+	# Choose an initial action.
+	move = int(np.random.choice(action, size = 1, p = action_prob))
+	status = is_terminal(state)
+	while status == False:
+		step_obj = step(state, move)
+		next_state = step_obj["next_state"]
+		reward = step_obj["reward"]
+		value = state_value[state]
+		next_value = state_value[next_state]
+		value = value + alpha * (reward + discount * next_value - value)
+		state_value[state] = value
+		next_move = int(np.random.choice(action, size = 1, p = action_prob))
+		value = state_action_value[state, move]
+		next_value = state_action_value[next_state, next_move]
+		value = value + alpha * (reward + discount * next_value - value)
+		state_action_value[state, move] = value
+		state = next_state
+		move = next_move
+		status = is_terminal(state)
+
+# Print out the results.
+
+np.round(state_value, 4)
+
+np.round(state_action_value, 4)
+
+# Find greedy actions.
+
+for i in range(n):
+	current_state = i
+	if is_terminal(current_state):
+		continue
+	else:
+		max_q_value = np.max(state_action_value[i, :])
+		index_max = which(np.abs(state_action_value[i, :] - max_q_value) < eps)
+		greedy_action[i, :] = np.zeros(action_num)
+		greedy_action[i, index_max] = 1
+
+for i in range(n): 
+	if is_terminal(i):
+		print("state = ", i, "  greedy action = ", [])
+	else:
+		index_max = which(greedy_action[i, :] == 1)
+		print("state = ", i, "  greedy action = ", action_word[index_max])
+
+##################

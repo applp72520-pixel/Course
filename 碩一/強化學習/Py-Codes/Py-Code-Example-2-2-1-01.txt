@@ -1,0 +1,113 @@
+# Python code for Example 2.2.1: One-dimensional Markov decision process
+
+# Find state values and state-action values using (2.1.1).
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+n = 5  # number of states
+
+discount = 0.95
+eps = 1.0e-5
+
+# action: ["left", "right"]: [0, 1]
+
+action_word = np.array(["left", "right"])
+
+action = np.array([0, 1])
+action_num = 2
+
+action_prob = np.array([0.6, 0.4])
+
+state_value = np.zeros(n)
+state_value_old = np.zeros(n)
+
+state_action_value = np.zeros(shape = (n, action_num))
+state_action_value_old = np.zeros(shape = (n, action_num))
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (n, action_num))
+
+# environment
+
+def is_terminal(state): 
+	x = state
+	status = False
+	if x == 4:
+		status = True
+	return status
+
+def step(state, action):
+	x = state
+	if is_terminal(x):
+		next_state = x
+		reward = 0.0
+	elif x == 0:
+		next_state = x + 1
+		reward = -1.0
+	else:
+		reward = -1.0
+		if action == 0: # move left 
+			next_state = x - 1
+		if action == 1: # move right 
+			next_state = x + 1
+		if is_terminal(next_state):
+			reward = 0.0
+	return {"next_state": next_state, "reward": reward}
+
+# main loop
+
+go = 1; iteration = 0
+
+while go == 1:
+	iteration = iteration + 1
+	#print("iteration = ", iteration, "\n")
+	# policy evaluation
+	for i in range(n):
+		current_state = i
+		if is_terminal(current_state):
+			continue
+		else:
+			for k in range(action_num):
+				move = k
+				step_obj = step(current_state, move)
+				next_state = step_obj["next_state"]
+				reward = step_obj["reward"]
+				state_action_value[i, k] = reward + discount * state_value[next_state]
+			state_value[i] = np.sum(action_prob * state_action_value[i])
+			# Find greedy actions.
+			max_q_value = np.max(state_action_value[i])
+			index_max = which(np.abs(state_action_value[i] - max_q_value) < eps)
+			greedy_action[i, :] = np.zeros(action_num)
+			greedy_action[i, index_max] = 1
+			# Print out the results.
+			#print("current state = ", current_state, "  state value = ", np.round(state_value[i]), "  greedy action = ", greedy_action[i, :])
+	#print(np.round(state_value, 4), "\n")
+	max_abs_diff = np.max(np.abs(state_value - state_value_old))
+	if max_abs_diff < eps: 
+		go = 0
+	else:
+		state_value_old = np.copy(state_value)
+
+iteration
+
+print(np.round(state_value, 4))
+
+print(np.round(state_action_value, 4))
+
+for i in range(n): 
+	if is_terminal(i):
+		print("state = ", i, "  greedy action = ", [])
+	else:
+		index_max = which(greedy_action[i, :] == 1)
+		print("state = ", i, "  greedy action = ", action_word[index_max])
+
+##################

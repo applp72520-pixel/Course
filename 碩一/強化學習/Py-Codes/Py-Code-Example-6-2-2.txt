@@ -1,0 +1,269 @@
+##################
+
+# Python code for Example 6.2.2: Two-dimensional maze
+
+# Compare the number of real steps and the number of planning steps "m" using Dyna Q.
+
+# In this approach, we pretend that we do not know the dynamics of the environment, 
+# and the dynamics will be learned from real experience.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+nrow = 7  # number of rows
+ncol = 7  # number of columns
+
+plan_steps_seq = [0, 1, 2, 5, 10]  # number of planning steps
+
+discount = 0.95
+eps = 1.0e-5  # should be small enough
+
+prob_eps = 0.1
+
+alpha = 0.01
+
+# action: ["left", "up", "right", "down"]: [0, 1, 2, 3]
+
+# move_increment = [np.array([0, -1]), np.array([-1, 0]), np.array([0, 1]), np.array([1, 0])]]
+
+action_word = np.array(["left", "up", "right", "down"])
+
+action = np.array([0, 1, 2, 3])
+action_num = 4
+
+#state_action_value = np.zeros(shape = (nrow, ncol, action_num))
+
+obstacle = [[1, 5], [2, 2], [3, 4], [5, 1], [5, 4], [5, 5], [5, 6]]
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (nrow, ncol, action_num))
+
+# environment
+
+def is_terminal(state): 
+	status = False
+	x, y = state
+	if (x == 6) and (y == 6): 
+		status = True
+	return status
+
+from sys import exit
+
+def step(state, action):
+	obstacle = [[1, 5], [2, 2], [3, 4], [5, 1], [5, 4], [5, 5], [5, 6]]
+	x, y = state
+	if [x, y] in obstacle:
+		print("The state is an obstacle!")
+		print("state = ", state)
+		exit()
+	else:
+		status = is_terminal(state)
+		if status == True: 
+			next_state = state
+			reward = 0
+		else:
+			if action == 0: # move left 
+				next_state = state + np.array([0, -1])
+			if action == 1: # move up 
+				next_state = state + np.array([-1, 0])
+			if action == 2: # move right
+				next_state = state + np.array([0, 1])
+			if action == 3: # move down 
+				next_state = state + np.array([1, 0])
+			x, y = next_state
+			x = np.clip(x, 0, nrow - 1)
+			y = np.clip(y, 0, ncol - 1)
+			if [x, y] in obstacle:
+				next_state = state
+			else:
+				next_state[0] = x
+				next_state[1] = y
+			x, y = next_state
+			if is_terminal([x, y]):
+				reward = 0
+			else:
+				reward = -1
+	return {"next_state": next_state, "reward": reward}
+
+# initial policy
+
+action_prob = np.zeros(shape = (nrow, ncol, action_num))
+for i in range(nrow):
+	for j in range(ncol):
+		state = [i, j]
+		if is_terminal(state):
+			continue
+		elif state in obstacle:
+			continue
+		else:
+			action_prob[i, j, :] = 0.25
+
+def eps_greedy_move(state, state_action_value, prob_eps, eps):
+	x, y = state
+	status = [x, y] in obstacle
+	if status == False:
+		if is_terminal(state):
+			move = int(np.random.choice(action, size = 1))
+		else:
+			rand_num = np.random.uniform(low = 0, high = 1, size = 1)
+			if rand_num < prob_eps:
+				move = int(np.random.choice(action, size = 1))
+			else:
+				q_values = state_action_value[state[0], state[1], :]
+				q_max = np.max(q_values)
+				index_max = which(np.abs(q_values - q_max) < eps)
+				move = int(np.random.choice(index_max, size = 1))
+	return move
+
+# main loop
+
+#episode_num = 1000
+
+#episode_num = 10000  # for testing purpose only
+
+episode_num = 1000  # for testing purpose only
+
+num_steps_real = np.zeros(shape = (len(plan_steps_seq), episode_num), dtype = int)
+num_steps_planning = np.zeros(shape = (len(plan_steps_seq), episode_num), dtype = int)
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for plan_iteration in range(len(plan_steps_seq)):
+	print("planning steps = ", plan_steps_seq[plan_iteration])
+	seed = 543
+	np.random.seed(seed)
+	state_action_value = np.zeros(shape = (nrow, ncol, action_num))
+	visit_status = np.zeros(shape = (nrow, ncol, action_num), dtype = int)
+	next_state_model = np.zeros(shape = (nrow, ncol, action_num, 2), dtype = int)
+	next_state_model[6, 6, :, :] = [6, 6]
+	next_reward_model = np.zeros(shape = (nrow, ncol, action_num))
+	plan_steps = plan_steps_seq[plan_iteration]
+	for episode in range(episode_num):
+		#print("")
+		#print("episode = ", episode)
+		num_steps_real[plan_iteration, episode] = 0
+		num_steps_planning[plan_iteration, episode] = 0
+		state_trajectory = []
+		state = [0, 0]  # initial state
+		state_trajectory.append(state)
+		status = is_terminal(state)
+		while status == False:
+			# Choose an action.
+			move = eps_greedy_move(state, state_action_value, prob_eps, eps)
+			visit_status[state[0], state[1], move] = 1
+			step_obj = step(state, move)
+			next_state = step_obj['next_state']
+			reward = step_obj['reward']
+			num_steps_real[plan_iteration, episode] = num_steps_real[plan_iteration, episode] + 1
+			# model learning
+			next_state_model[state[0], state[1], move, :] = next_state
+			next_reward_model[state[0], state[1], move] = reward
+			# direct reinforcement learning
+			if is_terminal(next_state) == True:
+				status = True
+				value = state_action_value[state[0], state[1], move]
+				reward = 0
+				next_opt_value = 0
+				value = value + alpha * (reward + discount * next_opt_value - value)
+				state_action_value[state[0], state[1], move] = value
+				state = next_state
+				state_trajectory.append(state)
+			else:
+				value = state_action_value[state[0], state[1], move]
+				next_opt_value = np.max(state_action_value[next_state[0], next_state[1], :])
+				value = value + alpha * (reward + discount * next_opt_value - value)
+				state_action_value[state[0], state[1], move] = value
+				state = next_state
+				state_trajectory.append(state)
+				status = is_terminal(state)
+			# planning: "p" stands for planning
+			if (status == False) and (plan_steps > 0):
+				for plan in range(plan_steps):
+					num_steps_planning[plan_iteration, episode] = num_steps_planning[plan_iteration, episode] + 1
+					# search control
+					#print("plan = ", plan)
+					plan_go = 1
+					while plan_go == 1:
+						i = int(np.random.randint(low = 0, high = nrow, size = 1))
+						j = int(np.random.randint(low = 0, high = ncol, size = 1))
+						k = int(np.random.randint(low = 0, high = action_num, size = 1))
+						if visit_status[i, j, k] == 1:
+							plan_go = 0
+					p_state = [i, j]
+					p_move = k
+					p_next_state = next_state_model[i, j, k, :]
+					p_reward = next_reward_model[i, j, k]
+					if is_terminal(p_next_state) == True:
+						p_value = state_action_value[p_state[0], p_state[1], p_move]
+						p_reward = 0
+						p_next_opt_value = 0
+						p_value = p_value + alpha * (p_reward + discount * p_next_opt_value - p_value)
+						state_action_value[p_state[0], p_state[1], p_move] = p_value
+					else:
+						p_value = state_action_value[p_state[0], p_state[1], p_move]
+						p_next_opt_value = np.max(state_action_value[p_next_state[0], p_next_state[1], :])
+						p_value = p_value + alpha * (p_reward + discount * p_next_opt_value - p_value)
+						state_action_value[p_state[0], p_state[1], p_move] = p_value
+
+# Print out the results.
+
+num_steps_real
+num_steps_planning
+
+np.median(num_steps_real, axis = 1)
+np.median(num_steps_planning, axis = 1)
+
+index = np.arange(start = 0, stop = episode_num, step = 20, dtype = int)
+
+labels = ['m = 0', 'm = 1', 'm = 2', 'm = 5', 'm = 10']
+
+plt.figure('Figure 6.2.1', figsize = (4.8, 4.0))
+plt.plot(index, num_steps_real[0][index], "r-")
+plt.plot(index, num_steps_real[1][index], "g--")
+plt.plot(index, num_steps_real[2][index], "b:")
+plt.plot(index, num_steps_real[3][index], "k-.")
+plt.plot(index, num_steps_real[4][index], "m-")
+plt.ylim(0, 250)
+plt.title('Number of real steps')
+plt.xlabel('episode')
+plt.ylabel('number of real steps')
+plt.legend(labels, loc = "best", frameon = False)
+plt.show()
+
+plt.figure('Figure 6.2.2', figsize = (4.8, 4.0))
+plt.plot(index, num_steps_planning[0][index], "r-")
+plt.plot(index, num_steps_planning[1][index], "g--")
+plt.plot(index, num_steps_planning[2][index], "b:")
+plt.plot(index, num_steps_planning[3][index], "k-.")
+plt.plot(index, num_steps_planning[4][index], "m-")
+plt.ylim(0, 250)
+plt.title('Number of planning steps')
+plt.xlabel('episode')
+plt.ylabel('number of planning steps')
+plt.legend(labels, loc = "best", frameon = False)
+plt.show()
+
+plt.figure('Figure 6.2.3', figsize = (4.8, 4.0))
+plt.boxplot([num_steps_real[0], num_steps_real[1], num_steps_real[2], num_steps_real[3], num_steps_real[4]], labels = labels)
+plt.title('Number of real steps')
+plt.ylim(0, 200)
+plt.show()
+
+plt.figure('Figure 6.2.4', figsize = (4.8, 4.0))
+plt.boxplot([num_steps_planning[0], num_steps_planning[1], num_steps_planning[2], num_steps_planning[3], num_steps_planning[4]], labels = labels)
+plt.title('Number of planning steps')
+plt.ylim(0, 200)
+plt.show()
+
+##################
+

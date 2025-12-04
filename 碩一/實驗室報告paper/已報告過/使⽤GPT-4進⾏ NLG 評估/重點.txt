@@ -1,0 +1,6 @@
+BLEU (Bilingual Evaluation Understudy) 常用於機器翻譯，它評估的是翻譯結果有多接近人類提供的參考翻譯。
+
+ROUGE (Recall-Oriented Understudy for Gisting Evaluation) 常用於文本摘要，它評估的是機器生成的摘要包含了多少人類參考摘要中的關鍵資訊。
+
+----
+

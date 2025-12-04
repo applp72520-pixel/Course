@@ -1,0 +1,147 @@
+# Python code for Example 2.2.2: Two-dimensional maze
+
+# Find state values and state-action values using (2.1.2).
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+nrow = 5  # number of rows
+ncol = 5  # number of columns
+
+discount = 0.95
+eps = 1.0e-5
+
+# action: ["left", "up", "right", "down"]: [0, 1, 2, 3]
+
+# move_increment = [np.array([0, -1]), np.array([-1, 0]), np.array([0, 1]), np.array([1, 0])]]
+
+action_word = np.array(["left", "up", "right", "down"])
+
+action = np.array([0, 1, 2, 3])
+action_num = 4
+
+action_prob = np.array([0.25, 0.25, 0.25, 0.25])
+
+state_value = np.zeros(shape = (nrow, ncol))
+state_value_old = np.zeros(shape = (nrow, ncol))
+
+state_action_value = np.zeros(shape = (nrow, ncol, action_num))
+state_action_value_old = np.zeros(shape = (nrow, ncol, action_num))
+
+obstacle = [[1, 1], [1, 3], [3, 0], [3, 2]]
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (nrow, ncol, action_num))
+
+# environment
+
+def is_terminal(state): 
+	status = False
+	x, y = state
+	if (x == 0) and (y == 0): 
+		status = True
+	if (x == (nrow - 1)) and (y == (ncol - 1)):
+		status = True
+	return status
+
+from sys import exit
+
+def step(state, action):
+	obstacle = [[1, 1], [1, 3], [3, 0], [3, 2]]
+	x, y = state
+	if [x, y] in obstacle:
+		print("The state is an obstacle!")
+		print("state = ", state)
+		exit()
+	else:
+		status = is_terminal(state)
+		if status == True: 
+			next_state = state
+			reward = 0
+		else:
+			if action == 0: # move left 
+				next_state = state + np.array([0, -1])
+			if action == 1: # move up 
+				next_state = state + np.array([-1, 0])
+			if action == 2: # move right
+				next_state = state + np.array([0, 1])
+			if action == 3: # move down 
+				next_state = state + np.array([1, 0])
+			x, y = next_state
+			x = np.clip(x, 0, nrow - 1)
+			y = np.clip(y, 0, ncol - 1)
+			if [x, y] in obstacle:
+				next_state = state
+			else:
+				next_state[0] = x
+				next_state[1] = y
+			x, y = next_state
+			if is_terminal([x, y]):
+				reward = 0
+			else:
+				reward = -1
+	return {"next_state": next_state, "reward": reward}
+
+# main loop
+
+go = 1; iteration = 0
+
+while go == 1:
+	iteration = iteration + 1
+	#print("iteration = ", iteration, "\n")
+	# q-policy evaluation
+	for i in range(nrow):
+		for j in range(ncol):
+			current_state = [i, j]
+			if is_terminal(current_state): 
+				continue
+			elif current_state in obstacle:
+				continue
+			else:
+				state_value[i, j] = np.sum(action_prob * state_action_value[i, j, :])
+				for k in range(action_num):
+					move = k
+					step_obj = step(current_state, move)
+					next_state = step_obj["next_state"]
+					reward = step_obj["reward"]
+					state_action_value[i, j, k] = reward + discount * state_value[next_state[0], next_state[1]]
+				# Find greedy actions.
+				max_q_value = np.max(state_action_value[i, j, :])
+				index_max = which(np.abs(state_action_value[i, j, :] - max_q_value) < eps)
+				greedy_action[i, j, :] = np.zeros(action_num)
+				greedy_action[i, j, index_max] = 1
+				# Print out the results.
+				#print("current state = ", current_state, "  state value = ", np.round(state_value[i, j]), "  greedy action = ", greedy_action[i, j, :])
+	#print(np.round(state_value, 4), "\n")
+	max_abs_diff = np.max(np.abs(state_action_value - state_action_value_old))
+	if max_abs_diff < eps: 
+		go = 0
+	else:
+		state_action_value_old = np.copy(state_action_value)
+
+iteration
+
+print(np.round(state_value, 4))
+
+print(np.round(state_action_value, 4))
+
+for i in range(nrow): 
+	for j in range(ncol):
+		current_state = [i, j]
+		if is_terminal(current_state):
+			print("state = ", [i, j], "  greedy action = ", [])
+		elif current_state in obstacle:
+			print("state = ", [i, j], "  greedy action = ", [])
+		else:
+			index_max = which(greedy_action[i, j, :] == 1)
+			print("state = ", [i, j], "  greedy action = ", action_word[index_max])
+
+##################

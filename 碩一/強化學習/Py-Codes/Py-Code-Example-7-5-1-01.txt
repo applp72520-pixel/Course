@@ -1,0 +1,171 @@
+# Python code for Example 7.5.1: One-dimensional Markov decision process
+
+# Find the state values using one-step TD with tile coding.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+
+##################
+
+# parameter settings of the tile coding
+
+num_tilings = 10  # number of tilings
+tiling_length = 4.0  # length of each tiling
+num_tiles = 5  # number of 
+width = tiling_length / num_tiles
+offset = 0.3
+
+min_state = 1
+max_state = 5
+
+intervals = []
+
+# Any tile beyond [0, 6] will not be included.
+
+tiling_left = 0
+
+for i in range(0, num_tilings):
+	left = tiling_left
+	j = 0
+	while j < num_tiles:
+		if left < max_state:
+			right = left + width
+			intervals.append([left, right])
+			left = right
+			j = j + 1
+		else:
+			j = j + num_tiles
+	tiling_left = tiling_left + offset
+
+np.round(intervals, 4)
+
+num_features = len(intervals)
+num_features
+
+status_in = lambda x, I: (I[0] <= x < I[1])
+
+w = np.zeros(num_features)  # weight vector
+
+# problem parameter settings
+
+n = 5  # number of states
+
+discount = 0.95
+
+alpha = 0.01
+
+# action: ["left", "right"]: [0, 1]
+
+#action_word = np.array(["left", "right"])
+
+action = np.array([0, 1])
+action_num = 2
+
+action_prob = np.array([0.6, 0.4])
+
+state_value = np.zeros(n)
+
+# environment
+
+def is_terminal(state): 
+	x = state
+	status = False
+	if x == 4:
+		status = True
+	return status
+
+def get_initial():
+	bingo = True
+	while bingo:
+		i = np.random.randint(low = 0, high = n)
+		state = i
+		if is_terminal(state): 
+			continue
+		else:
+			bingo = False
+	return state
+
+def step(state, action):
+	x = state
+	if is_terminal(x):
+		next_state = x
+		reward = 0.0
+	elif x == 0:
+		next_state = x + 1
+		reward = -1.0
+	else:
+		reward = -1.0
+		if action == 0: # move left 
+			next_state = x - 1
+		if action == 1: # move right 
+			next_state = x + 1
+		if is_terminal(next_state):
+			reward = 0.0
+	return {"next_state": next_state, "reward": reward}
+
+# main loop
+
+#episode_num = 1000
+
+episode_num = 1000  # for testing purpose only
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for episode in range(episode_num):
+	if episode == 0 or (episode+1) % 100 == 0:
+		print("episode = ", episode+1)
+	# Get a random initial state: Exploring starts.
+	state = get_initial()
+	# Game starts!
+	status = is_terminal(state)
+	while status == False:
+		move = int(np.random.choice(action, size = 1, p = action_prob))
+		step_obj = step(state, move)
+		next_state = step_obj["next_state"]
+		reward = step_obj["reward"]
+		# Calculate the state value of the next state.
+		features = np.zeros(num_features)
+		next_index = []
+		for j in range(num_features):
+			status = status_in(next_state, intervals[j])
+			if status == True:
+				next_index.append(j)
+				features[j] = 1.0
+		next_value = np.sum(w[next_index] * features[next_index])
+		# Calculate the state value of the current state.
+		features = np.zeros(num_features)
+		current_index = []
+		for j in range(num_features):
+			status = status_in(state, intervals[j])
+			if status == True:
+				current_index.append(j)
+				features[j] = 1.0
+		current_value = np.sum(w[current_index] * features[current_index])
+		w[current_index] = w[current_index] + alpha * (reward + discount * next_value - current_value) * features[current_index]
+		state = next_state
+		status = is_terminal(state)
+
+# Print the results.
+
+np.round(w, 4)
+
+# Calculate the state values.
+
+state_value = np.zeros(n)
+
+for i in range(n):
+	if i == 4:
+		state_value[i] = 0.0
+	else:
+		features = np.zeros(num_features)
+		for j in range(num_features):
+			features[j] = status_in(i, intervals[j])
+		state_value[i] = np.sum(w * features) 
+
+np.round(state_value, 4)
+
+##################

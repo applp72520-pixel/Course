@@ -1,0 +1,215 @@
+# Python code for Example 5.2.2: Two-dimensional maze
+
+# Compare the number of steps using n-step Sarsa for various n.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+which = lambda status: np.arange(len(status))[status]
+
+##################
+
+nrow = 7  # number of rows
+ncol = 7  # number of columns
+
+discount = 0.95
+eps = 1.0e-5  # should be small enough
+
+prob_eps = 0.1
+
+# action: ["left", "up", "right", "down"]: [0, 1, 2, 3]
+
+# move_increment = [np.array([0, -1]), np.array([-1, 0]), np.array([0, 1]), np.array([1, 0])]]
+
+action_word = np.array(["left", "up", "right", "down"])
+
+action = np.array([0, 1, 2, 3])
+action_num = 4
+
+state_action_value = np.zeros(shape = (nrow, ncol, action_num))
+
+obstacle = [[1, 5], [2, 2], [3, 4], [5, 1], [5, 4], [5, 5], [5, 6]]
+
+# greedy action expressed by one-hot encoding
+
+greedy_action = np.zeros(shape = (nrow, ncol, action_num))
+
+# environment
+
+def is_terminal(state): 
+	status = False
+	x, y = state
+	if (x == 6) and (y == 6): 
+		status = True
+	return status
+
+from sys import exit
+
+def step(state, action):
+	obstacle = [[1, 5], [2, 2], [3, 4], [5, 1], [5, 4], [5, 5], [5, 6]]
+	x, y = state
+	if [x, y] in obstacle:
+		print("The state is an obstacle!")
+		print("state = ", state)
+		exit()
+	else:
+		status = is_terminal(state)
+		if status == True: 
+			next_state = state
+			reward = 0
+		else:
+			if action == 0: # move left 
+				next_state = state + np.array([0, -1])
+			if action == 1: # move up 
+				next_state = state + np.array([-1, 0])
+			if action == 2: # move right
+				next_state = state + np.array([0, 1])
+			if action == 3: # move down 
+				next_state = state + np.array([1, 0])
+			x, y = next_state
+			x = np.clip(x, 0, nrow - 1)
+			y = np.clip(y, 0, ncol - 1)
+			if [x, y] in obstacle:
+				next_state = state
+			else:
+				next_state[0] = x
+				next_state[1] = y
+			x, y = next_state
+			if is_terminal([x, y]):
+				reward = 0
+			else:
+				reward = -1
+	return {"next_state": next_state, "reward": reward}
+
+# initial policy
+
+action_prob = np.zeros(shape = (nrow, ncol, action_num))
+for i in range(nrow):
+	for j in range(ncol):
+		state = [i, j]
+		if is_terminal(state):
+			continue
+		elif state in obstacle:
+			continue
+		else:
+			action_prob[i, j, :] = 0.25
+
+def eps_greedy_move(state, state_action_value, prob_eps, eps):
+	status = state in obstacle
+	if status == False:
+		if is_terminal(state):
+			move = int(np.random.choice(action, size = 1))
+		else:
+			rand_num = np.random.uniform(low = 0, high = 1, size = 1)
+			if rand_num < prob_eps:
+				move = int(np.random.choice(action, size = 1))
+			else:
+				q_values = state_action_value[state[0], state[1], :]
+				q_max = np.max(q_values)
+				index_max = which(np.abs(q_values - q_max) < eps)
+				move = int(np.random.choice(index_max, size = 1))
+	return move
+
+# main loop
+
+alpha = 0.01
+
+T_big = np.inf
+
+#episode_num = 1000
+
+episode_num = 1000  # for testing purpose only
+
+n_seq = [1, 2, 3, 4, 5]
+
+num_steps = np.zeros(shape = (len(n_seq), episode_num), dtype = int)
+
+for k in range(len(n_seq)):
+	seed = 543
+	np.random.seed(seed)
+	n = n_seq[k]
+	print("bootstrapping step = ", n)
+	gamma_seg = np.ones(n+1)
+	for i in range(1, n+1):
+		gamma_seg[i] = discount * gamma_seg[i-1]
+	for episode in range(episode_num):
+		#print("")
+		#print("episode = ", episode)
+		state_action_seg = []  # segment of the state-action trajectory
+		# Specify the initial state.
+		state = [0, 0]
+		move = eps_greedy_move(state, state_action_value, prob_eps, eps)
+		state_action = [state[0], state[1], move]
+		state_action_seg.append(state_action)
+		T = T_big
+		if is_terminal(state) == False:
+			reward_seg = []  # segment of the reward trajectory
+			rv_seg = np.zeros(n+1, dtype = float)
+			rq_seg = np.zeros(n+1, dtype = float)
+			t = 0
+			go = 1
+			while go == 1:
+				step_obj = step(state, move)
+				next_state = list(step_obj["next_state"])
+				reward = step_obj["reward"]
+				reward_seg.append(reward)
+				next_move = eps_greedy_move(next_state, state_action_value, prob_eps, eps)
+				next_state_action = [next_state[0], next_state[1], next_move]
+				state_action_seg.append(next_state_action)
+				if is_terminal(next_state):
+					if T == T_big:
+						T = t + 1
+				if t >= (n-1):
+					# Update state-action values.
+					rq_seg[:n] = reward_seg
+					k0, k1, k2 = next_state_action
+					rq_seg[n] = state_action_value[k0, k1, k2]
+					GQ = np.sum(gamma_seg * rq_seg)
+					k0, k1, k2 = state_action_seg[0]
+					value = state_action_value[k0, k1, k2] 
+					value = value + alpha * (GQ - value)
+					state_action_value[k0, k1, k2] = value
+					# Remove the first item.
+					state_action_seg = state_action_seg[1:] 
+					reward_seg = reward_seg[1:] 
+				state = next_state
+				move = next_move
+				if t == (T+n-2):  
+					go = 0
+				else: 
+					t = t + 1
+		num_steps[k, episode] = T
+
+# Print out the results.
+
+num_steps
+
+np.median(num_steps, axis = 1)
+
+index = np.arange(start = 0, stop = episode_num, step = 10, dtype = int)
+
+labels = ['n = 1', 'n = 2', 'n = 3', 'n = 4', 'n = 5']
+
+plt.figure('Figure 5.3.4', figsize = (4.8, 4.0))
+plt.plot(index, num_steps[0][index], "r-")
+plt.plot(index, num_steps[1][index], "g--")
+plt.plot(index, num_steps[2][index], "b:")
+plt.plot(index, num_steps[3][index], "k-.")
+plt.plot(index, num_steps[4][index], "m-")
+plt.ylim(0, 150)
+plt.title('Number of steps')
+plt.xlabel('episode')
+plt.ylabel('number of steps')
+plt.legend(labels, loc = "best", frameon = False)
+plt.show()
+
+plt.figure('Figure 5.3.5', figsize = (4.8, 4.0))
+plt.boxplot([num_steps[0], num_steps[1], num_steps[2], num_steps[3], num_steps[4]], labels = labels)
+plt.ylim(0, 150)
+plt.show()
+
+##################

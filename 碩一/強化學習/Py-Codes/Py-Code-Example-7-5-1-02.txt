@@ -1,0 +1,142 @@
+# Python code for Example 7.5.1: One-dimensional Markov decision process
+
+# Find the state values using one-step TD with RBF.
+
+##################
+
+# Import packages and functions.
+
+import numpy as np
+
+##################
+
+# RBF parameter settings
+
+num_features = 10
+sd = 0.5
+
+eps = 1.0e-7
+
+centers = np.linspace(start = 0.5, stop = 5.5 + eps, num = num_features)
+
+rbf = lambda u: np.exp(-0.5 * u**2) 
+
+feature_value = lambda x, center_point, sd: rbf((x - center_point) / sd)
+
+w = np.zeros(num_features)  # weight vector
+
+# problem parameter settings
+
+n = 5  # number of states
+
+discount = 0.95
+
+alpha = 0.01
+
+# action: ["left", "right"]: [0, 1]
+
+#action_word = np.array(["left", "right"])
+
+action = np.array([0, 1])
+action_num = 2
+
+action_prob = np.array([0.6, 0.4])
+
+state_value = np.zeros(n)
+
+# environment
+
+def is_terminal(state): 
+	x = state
+	status = False
+	if x == 4:
+		status = True
+	return status
+
+def get_initial():
+	bingo = True
+	while bingo:
+		i = np.random.randint(low = 0, high = n)
+		state = i
+		if is_terminal(state): 
+			continue
+		else:
+			bingo = False
+	return state
+
+def step(state, action):
+	x = state
+	if is_terminal(x):
+		next_state = x
+		reward = 0.0
+	elif x == 0:
+		next_state = x + 1
+		reward = -1.0
+	else:
+		reward = -1.0
+		if action == 0: # move left 
+			next_state = x - 1
+		if action == 1: # move right 
+			next_state = x + 1
+		if is_terminal(next_state):
+			reward = 0.0
+	return {"next_state": next_state, "reward": reward}
+
+# main loop
+
+#episode_num = 1000
+
+episode_num = 1000  # for testing purpose only
+
+seed = 543
+np.random.seed(seed)  # Set random seed for reproducibility.
+
+for episode in range(episode_num):
+	if episode == 0 or (episode+1) % 100 == 0:
+		print("episode = ", episode+1)
+	# Get a random initial state: Exploring starts.
+	state = get_initial()
+	# Game starts!
+	status = is_terminal(state)
+	while status == False:
+		move = int(np.random.choice(action, size = 1, p = action_prob))
+		step_obj = step(state, move)
+		next_state = step_obj["next_state"]
+		reward = step_obj["reward"]
+		# Calculate the state value of the next state.
+		features = np.zeros(num_features)
+		for j in range(num_features):
+			features[j] = feature_value(next_state, centers[j], sd)
+		next_value = np.sum(w * features) 
+		#print("next_value = ", next_value)
+		# Calculate the state value of the current state.
+		features = np.zeros(num_features)
+		for j in range(num_features):
+			features[j] = feature_value(state, centers[j], sd)
+		current_value = np.sum(w * features)
+		#print("current_value = ", current_value) 
+		w = w + alpha * (reward + discount * next_value - current_value) * features
+		#print("w = ", w)
+		state = next_state
+		status = is_terminal(state)
+
+# Print the results.
+
+np.round(w, 4)
+
+# Calculate the state values.
+
+state_value = np.zeros(n)
+
+for i in range(n):
+	if i == 4:
+		state_value[i] = 0.0
+	else:
+		features = np.zeros(num_features)
+		for j in range(num_features):
+			features[j] = feature_value(i, centers[j], sd)
+		state_value[i] = np.sum(w * features) 
+
+np.round(state_value, 4)
+
+##################
