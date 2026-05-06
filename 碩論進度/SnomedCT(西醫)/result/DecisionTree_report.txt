@@ -1,0 +1,50 @@
+                             precision    recall  f1-score   support
+
+      administration method       0.33      0.38      0.35         8
+           assessment scale       0.90      0.92      0.91       804
+                  attribute       0.77      0.70      0.73       510
+            basic dose form       0.84      0.53      0.65        30
+             body structure       0.99      0.97      0.98     20133
+                calculation       1.00      0.60      0.75         5
+                       cell       0.91      0.92      0.92       616
+             cell structure       0.85      0.78      0.81       331
+              clinical drug       1.00      1.00      1.00      3605
+      core metadata concept       0.83      0.69      0.75        29
+                   disorder       0.97      0.97      0.97     52254
+                disposition       0.98      0.88      0.92       187
+                  dose form       1.00      1.00      1.00       273
+                environment       0.88      0.83      0.86       569
+                      event       0.95      0.94      0.95      1480
+                    finding       0.94      0.93      0.94     19140
+foundation metadata concept       0.90      0.74      0.81       136
+        geographic location       0.88      0.62      0.73       292
+              intended site       0.80      0.57      0.67        14
+          medicinal product       0.99      1.00      0.99      3660
+     medicinal product form       1.00      1.00      1.00      3066
+    morphologic abnormality       0.92      0.85      0.88      2917
+          namespace concept       1.00      1.00      1.00       207
+          observable entity       0.89      0.89      0.89      5831
+                 occupation       0.89      0.84      0.86      1554
+                   organism       0.90      0.98      0.94     19215
+                     person       0.91      0.82      0.86       222
+             physical force       0.67      0.59      0.63        88
+            physical object       0.94      0.90      0.92      6340
+                  procedure       0.96      0.96      0.96     30974
+                    product       0.94      0.91      0.93       736
+            qualifier value       0.91      0.82      0.86      6179
+               racial group       1.00      0.20      0.33         5
+            record artifact       0.94      0.87      0.91       231
+             regime/therapy       0.89      0.80      0.84      1528
+        religion/philosophy       0.95      0.83      0.89       101
+                       role       1.00      1.00      1.00        53
+                  situation       0.98      0.96      0.97      2629
+             social concept       0.86      0.46      0.60        13
+                   specimen       0.96      0.96      0.96       917
+              staging scale       0.80      0.67      0.73        18
+                  substance       0.93      0.94      0.94     16578
+              tumor staging       0.94      0.77      0.85       101
+       unit of presentation       0.52      0.54      0.53        24
+
+                   accuracy                           0.95    203603
+                  macro avg       0.90      0.81      0.84    203603
+               weighted avg       0.95      0.95      0.95    203603

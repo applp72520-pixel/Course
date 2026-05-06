@@ -1,0 +1,153 @@
+0. SNOMED CT 載下來的資料必須先做資料清理，把資料中的 ( ' ) 及 ( " ) 移除
+
+載下來的文件會分 Full 和 Terminology，用 Full 裡面的資料
+
+----------------------------------------------------------------------------
+
+
+1. 建立唯一性約束，確保每個 :Concept 節點的 conceptId 唯一
+
+CREATE CONSTRAINT concept_id_unique FOR (c:Concept) REQUIRE c.conceptId IS UNIQUE;
+
+----------------------------------
+
+2. 建立concept 節點
+
+:auto
+CALL {
+  LOAD CSV WITH HEADERS FROM 'file:///sct2_Concept_Full_INT_20250301.txt' AS row FIELDTERMINATOR '\t'
+  MERGE (c:Concept {conceptId: row.id})
+  SET c.active = row.active,
+      c.effectiveTime = row.effectiveTime,
+      c.moduleId = row.moduleId,
+      c.definitionStatusId = row.definitionStatusId
+} IN TRANSACTIONS OF 5000 ROWS;
+
+--------------------------------------------------------
+
+為 Description 加唯一性約束，若不希望重複導入相同的描述：
+
+CREATE CONSTRAINT description_id_unique FOR (d:Description) REQUIRE d.descriptionId IS UNIQUE;
+
+----------------------------------------------------------------
+
+3. 建立 Description
+
+:auto
+CALL {
+  LOAD CSV WITH HEADERS FROM 'file:///sct2_Description_Full-en_INT_20250301.txt' AS row FIELDTERMINATOR '\t'
+
+  // 保留 active = 1 的描述
+  WITH row
+  WHERE row.active = '1'
+
+  // 建立 :Description 節點
+  MERGE (d:Description {descriptionId: row.id})
+  SET d.effectiveTime = row.effectiveTime,
+      d.moduleId = row.moduleId,
+      d.languageCode = row.languageCode,
+      d.typeId = row.typeId,
+      d.term = row.term,
+      d.caseSignificanceId = row.caseSignificanceId
+
+  // 將描述連結到對應的 Concept
+  WITH d, row
+  MATCH (c:Concept {conceptId: row.conceptId})
+  MERGE (d)-[:DESCRIBES]->(c)
+} IN TRANSACTIONS OF 5000 ROWS;
+
+------------------------------------------------------
+查詢當前 Description 節點數量
+
+MATCH (d:Description) RETURN count(d);
+
+
+------------------------------------------
+
+4. 建立 Relationship
+
+
+:auto
+CALL {
+  LOAD CSV WITH HEADERS FROM 'file:///sct2_Relationship_Full_INT_20250301.txt' AS row FIELDTERMINATOR '\t'
+  WITH row
+  WHERE row.active = '1'
+
+  MATCH (source:Concept {conceptId: row.sourceId})
+  MATCH (target:Concept {conceptId: row.destinationId})
+
+  MERGE (source)-[r:HAS_RELATIONSHIP {
+      relationshipId: row.id,
+      typeId: row.typeId,
+      relationshipGroup: row.relationshipGroup,
+      characteristicTypeId: row.characteristicTypeId,
+      modifierId: row.modifierId,
+      effectiveTime: row.effectiveTime,
+      moduleId: row.moduleId
+  }]->(target)
+} IN TRANSACTIONS OF 5000 ROWS;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

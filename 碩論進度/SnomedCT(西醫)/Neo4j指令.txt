@@ -1,0 +1,141 @@
+先去 setting 拉到最下面把記憶體都改成10G
+
+dbms.memory.transaction.total.max 改 10G
+
+注意導入檔案的檔名!!!!!
+
+所有導入的動作都能在十分鐘內完成，即便資料量是百萬級。
+
+記得安裝插件：APOC
+
+
+1.建立 Concept 節點
+
+
+:auto
+CALL () {
+  LOAD CSV WITH HEADERS FROM 'file:///sct2_Concept_Full_INT_20250301.txt' AS row FIELDTERMINATOR '\t'
+  CREATE (:Concept {
+    conceptId: row.id,
+    active: row.active,
+    effectiveTime: row.effectiveTime,
+    moduleId: row.moduleId,
+    definitionStatusId: row.definitionStatusId
+  })
+} IN TRANSACTIONS OF 5000 ROWS;
+
+
+
+
+
+2.導入節點後，建立 schema index 以加速查詢。
+
+CREATE INDEX conceptId_index IF NOT EXISTS FOR (c:Concept) ON (c.conceptId);
+
+
+
+
+
+
+3.導入 Description 資料
+
+
+:auto
+LOAD CSV WITH HEADERS FROM 'file:///sct2_Description_Full-en_INT_20250301.txt' AS row FIELDTERMINATOR '\t'
+MATCH (c:Concept {conceptId: row.conceptId})
+// 這裡簡單地將 term 等屬性寫入，若有多筆描述則會覆蓋，實際情況可根據需求調整（例如收集成列表）
+SET c.term = row.term,
+    c.languageCode = row.languageCode,
+    c.descriptionTypeId = row.typeId,
+    c.caseSignificanceId = row.caseSignificanceId;
+
+
+
+4.導入 Relationship 資料(用APOC導入)
+
+// 有 APOC
+
+CALL apoc.periodic.iterate(
+  "
+    LOAD CSV WITH HEADERS
+      FROM 'file:///sct2_Relationship_Full_INT_20250301.txt'
+      AS row
+    FIELDTERMINATOR '\\t'
+    RETURN row
+  ",
+  "
+    MATCH (s:Concept {conceptId: row.sourceId})
+    MATCH (t:Concept {conceptId: row.destinationId})
+    MERGE (s)-[r:RELATION {
+      relationshipId: row.id,
+      typeId: row.typeId,
+      active: row.active,
+      effectiveTime: row.effectiveTime,
+      characteristicTypeId: row.characteristicTypeId,
+      modifierId: row.modifierId
+    }]->(t)
+  ",
+  {batchSize:5000, parallel:false}
+);
+
+
+
+// 無 APOC
+
+:auto
+LOAD CSV WITH HEADERS FROM 'file:///sct2_Relationship_Full_INT_20250301.txt' AS row
+MATCH (source:Concept {conceptId: toString(row.sourceId)})
+MATCH (target:Concept {conceptId: toString(row.destinationId)})
+MERGE (source)-[:RELATION {
+  relationshipId: row.id,
+  typeId: row.typeId,
+  active: row.active,
+  effectiveTime: row.effectiveTime,
+  characteristicTypeId: row.characteristicTypeId,
+  modifierId: row.modifierId
+}]->(target);
+
+
+
+5.節點數量與關係數量檢查
+
+統計節點數量
+MATCH (c:Concept)
+RETURN count(c) AS totalConcepts;
+
+
+統計關係數量
+MATCH ()-[r:RELATION]->()
+RETURN count(r) AS totalRelationships;
+
+
+6.檢查節點屬性
+
+MATCH (c:Concept)
+RETURN c LIMIT 10;
+
+7.檢查描述資料
+
+MATCH (c:Concept)
+WHERE c.term IS NOT NULL
+RETURN c.conceptId, c.term
+LIMIT 10;
+
+
+8.檢查關係連結
+
+MATCH (a:Concept)-[r:RELATION]->(b:Concept)
+RETURN a.conceptId, type(r), b.conceptId
+LIMIT 10;
+
+9.資料完整性驗證
+
+// 找出有描述但沒有對應 Concept 節點的資料
+LOAD CSV WITH HEADERS FROM 'file:///sct2_Description_Full-en_INT_20250301.csv' AS row
+WITH row.conceptId AS cid
+MATCH (c:Concept {conceptId: cid})
+WITH cid, count(c) AS cnt
+WHERE cnt = 0
+RETURN cid, cnt;
+
+10.

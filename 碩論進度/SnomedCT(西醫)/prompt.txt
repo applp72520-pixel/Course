@@ -1,0 +1,8 @@
+clean_concept.txt 的欄位名稱有id、effectiveTime、active、moduleId、definitionStatusId
+
+clean_description.txt的欄位名稱有id、effectiveTime、active、moduleId、conceptId、languageCode、typeId、term、caseSignificanceId
+
+clean_relationship.txt的欄位名稱有id、effectiveTime、active、moduleId、sourceId、destinationId、relationshipGroup、typeId、characteristicTypeId
+
+
+接下來請幫我導入資料，並開始做訓練資料，訓練模型的部分請使用LinearSVC、RidgeClassifier、LogisticRegression、SGDClassifier、RandomForest、DecisionTree、MultinomialNB、ComplementNB這些模型
